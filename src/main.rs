@@ -23,6 +23,7 @@ mod settings_dialog;
 mod states_manager;
 mod util;
 
+pub(crate) const MENUBAR_HEIGHT: i32 = 30;
 pub(crate) const COMMON_DLG_W: i32 = 400;
 pub(crate) const COMMON_DLG_H: i32 = 100;
 pub(crate) const LOG_HEIGHT: i32 = 240;
@@ -52,16 +53,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let app = app::App::default();
 
-    let ws = Rc::new(RefCell::new(state.borrow().window.clone()));
+    let ws = state.borrow().window.clone();
     let title = format!("OverTLS clients manager for {}", util::host_os_name());
-    let mut win = Window::new(ws.borrow().x, ws.borrow().y, ws.borrow().w, ws.borrow().h, title.as_str());
+    let mut win = Window::new(ws.x, ws.y, ws.w, ws.h, title.as_str());
 
-    let menubar_height = 30;
-    let mut menubar = MenuBar::new(0, 0, ws.borrow().w, menubar_height, "");
+    let mut menubar = MenuBar::new(0, 0, ws.w, MENUBAR_HEIGHT, "");
 
-    let mut table = content_table::create_table(menubar_height, &ws, &current_node_index, &remote_nodes, &win);
+    let mut table = content_table::create_table(MENUBAR_HEIGHT, &current_node_index, &remote_nodes, &win);
 
-    refresh_table(&mut table, &mut win, menubar_height, &ws, &remote_nodes);
+    refresh_table(&mut table, &mut win, &remote_nodes);
 
     let w = win.clone();
     let state_clone = state.clone();
@@ -84,7 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     });
 
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add(
@@ -97,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             match paste_operations::screenshot_qr_import() {
                 Ok(config) => {
                     remote_nodes_clone.borrow_mut().push(config);
-                    refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+                    refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
                     dialog::message(x, y, "QR Code scanned and imported!");
                 }
                 Err(e) => dialog::alert(x, y, &format!("Failed to import QR Code: {e}")),
@@ -108,7 +107,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes_clone = remote_nodes.clone();
     let state_clone = state.clone();
     let mut table_clone = table.clone();
-    let ws_clone = ws.clone();
     let mut w = win.clone();
     menubar.add("&File/Import Node from File", Shortcut::None, MenuFlag::Normal, move |_menu| {
         let dlg_w = 600;
@@ -129,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                         state_clone.borrow_mut().set_current_path(parent_dir);
                     }
                     remote_nodes_clone.borrow_mut().push(config);
-                    refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+                    refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
                 }
                 Err(e) => {
                     dialog::alert(x, y, &format!("Import failed: {e}"));
@@ -139,13 +137,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     });
 
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&File/New\t", Shortcut::Ctrl | 'n', MenuFlag::MenuDivider, move |_m| {
-        if let Some(node) = crate::node_details_dialog::show_node_details(&ws_clone, None) {
+        if let Some(node) = crate::node_details_dialog::show_node_details(&w, None) {
             remote_nodes_clone.borrow_mut().push(node);
-            refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
         }
     });
 
@@ -241,12 +238,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // --- Edit menu group: View Details ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&Edit/View Details", Shortcut::None, MenuFlag::Normal, move |_menu| {
-        let x = ws_clone.borrow().x + (ws_clone.borrow().w - COMMON_DLG_W) / 2;
-        let y = ws_clone.borrow().y + (ws_clone.borrow().h - COMMON_DLG_H) / 2;
+        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
+        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
             dialog::alert(x, y, "No node selected.");
             return;
@@ -255,9 +251,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dialog::alert(x, y, "Selected node not found.");
             return;
         };
-        if let Some(node) = crate::node_details_dialog::show_node_details(&ws_clone, Some(cfg)) {
+        if let Some(node) = crate::node_details_dialog::show_node_details(&w, Some(cfg)) {
             remote_nodes_clone.borrow_mut()[selected_row] = node;
-            refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
         }
     });
 
@@ -295,12 +291,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // --- Edit menu group: Delete ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&Edit/Delete", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
-        let x = ws_clone.borrow().x + (ws_clone.borrow().w - COMMON_DLG_W) / 2;
-        let y = ws_clone.borrow().y + (ws_clone.borrow().h - COMMON_DLG_H) / 2;
+        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
+        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
             dialog::alert(x, y, "No node selected.");
             return;
@@ -318,7 +313,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         if confirm == Some(0) {
             remote_nodes_clone.borrow_mut().remove(selected_row);
             *current_node_index_clone.borrow_mut() = None;
-            refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
         }
     });
 
@@ -347,13 +342,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     });
 
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
         if let Ok(config) = paste_operations::paste() {
             remote_nodes_clone.borrow_mut().push(config);
-            refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
         } else {
             let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
             let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
@@ -376,13 +370,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     });
 
     let remote_nodes_clone = remote_nodes.clone();
-    let ws_clone = ws.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
     win.handle(move |_, ev| {
         if ev == Event::Resize {
-            ws_clone.borrow_mut().refresh_window(&w);
-            let h = w.height() - menubar_height - LOG_HEIGHT;
+            let h = w.height() - MENUBAR_HEIGHT - LOG_HEIGHT;
             content_table::update_table_size(&mut table_clone, w.width(), h);
             true // Indicate that the event was handled
         } else if ev == Event::DndEnter || ev == Event::DndDrag || ev == Event::DndRelease {
@@ -395,7 +387,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             for config in new_configs {
                 remote_nodes_clone.borrow_mut().push(config);
             }
-            refresh_table(&mut table_clone, &mut w, menubar_height, &ws_clone, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
             true
         } else {
             false
@@ -427,7 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     win.show();
 
     // Create a text display for logs on the bottom of the main window
-    let mut log_display = TextDisplay::new(0, ws.borrow().h - LOG_HEIGHT, ws.borrow().w - 1, LOG_HEIGHT, "");
+    let mut log_display = TextDisplay::new(0, win.h() - LOG_HEIGHT, win.w() - 1, LOG_HEIGHT, "");
     let mut log_buffer = TextBuffer::default();
     log_display.set_buffer(Some(log_buffer.clone()));
     log_display.set_text_font(fltk::enums::Font::Courier);
@@ -480,9 +472,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     }
 
-    ws.borrow_mut().refresh_window(&win);
     state.borrow_mut().remote_nodes = remote_nodes.borrow().clone();
-    state.borrow_mut().window = ws.borrow().clone();
+    state.borrow_mut().window.refresh_window(&win);
     state.borrow_mut().current_node_index = *current_node_index.borrow();
 
     states_manager::save_app_state(&state.borrow())?;

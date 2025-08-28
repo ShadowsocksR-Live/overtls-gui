@@ -1,4 +1,3 @@
-use crate::states_manager::WindowState;
 use fltk::{
     button::{Button, CheckButton},
     enums::Align,
@@ -39,11 +38,11 @@ macro_rules! add_row_check {
     }};
 }
 
-pub fn show_node_details(state: &Rc<RefCell<WindowState>>, node_cfg: Option<Config>) -> Option<Config> {
+pub fn show_node_details(win: &Window, node_cfg: Option<Config>) -> Option<Config> {
     let dialog_w = 500;
     let dialog_h = 360;
-    let x = state.borrow().x + (state.borrow().w - dialog_w) / 2;
-    let y = state.borrow().y + (state.borrow().h - dialog_h) / 2;
+    let x = win.x() + (win.w() - dialog_w) / 2;
+    let y = win.y() + (win.h() - dialog_h) / 2;
 
     let title = match &node_cfg {
         None => "New Node".to_string(),

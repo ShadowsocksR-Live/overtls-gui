@@ -1,4 +1,4 @@
-use crate::{COMMON_DLG_H, COMMON_DLG_W, LOG_HEIGHT, states_manager::WindowState};
+use crate::{COMMON_DLG_H, COMMON_DLG_W, LOG_HEIGHT, MENUBAR_HEIGHT};
 use fltk::{
     enums::{Align, Color, Event, FrameType, Shortcut},
     menu::MenuFlag,
@@ -13,20 +13,13 @@ use std::rc::Rc;
 const HEADERS: [&str; 3] = ["Server Host", "Server Port", "Tunnel Path"];
 const ROW_HEADER_WIDTH: i32 = 150;
 
-pub fn create_table(
-    top_offset: i32,
-    state: &Rc<RefCell<WindowState>>,
-    selected_row: &Rc<RefCell<Option<usize>>>,
-    nodes: &Rc<RefCell<Vec<Config>>>,
-    win: &Window,
-) -> Table {
-    let mut table = Table::new(0, top_offset, state.borrow().w, state.borrow().h - top_offset - LOG_HEIGHT, "");
+pub fn create_table(top_offset: i32, selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCell<Vec<Config>>>, win: &Window) -> Table {
+    let mut table = Table::new(0, top_offset, win.w(), win.h() - top_offset - LOG_HEIGHT, "");
     table.set_cols(HEADERS.len() as i32);
     table.set_col_header(true);
     table.set_row_header(true);
 
     let configs_rc = nodes.clone();
-    let state_rc = state.clone();
     // To highlight the selected row
     let selected_row_handle = selected_row.clone();
     let win_clone = win.clone();
@@ -68,12 +61,12 @@ pub fn create_table(
 
             if (table_context == TableContext::Cell || table_context == TableContext::RowHeader) && 0 <= row && row < count as i32 {
                 let configs_clone = configs_rc.clone();
-                let ws_clone = state_rc.clone();
                 let mut table_clone = table.clone();
+                let win = win_clone.clone();
                 menu_btn.add("View details", Shortcut::None, MenuFlag::Normal, move |_m| {
                     let cfg = configs_clone.borrow().get(row as usize).cloned();
                     if let Some(cfg) = cfg
-                        && let Some(details) = crate::node_details_dialog::show_node_details(&ws_clone, Some(cfg))
+                        && let Some(details) = crate::node_details_dialog::show_node_details(&win, Some(cfg))
                     {
                         configs_clone.borrow_mut()[row as usize] = details;
                         table_clone.redraw();
@@ -103,7 +96,7 @@ pub fn create_table(
 
                 let configs_clone = configs_rc.clone();
                 let mut table_clone = table.clone();
-                let ws_clone = state_rc.clone();
+                let win = win_clone.clone();
                 let selected_row_clone = selected_row_handle.clone();
                 menu_btn.add("Delete", Shortcut::None, MenuFlag::MenuDivider, move |_| {
                     let title = configs_clone
@@ -112,8 +105,8 @@ pub fn create_table(
                         .map(|c| c.remarks.clone().unwrap_or_default())
                         .unwrap_or_default();
                     let confirm = fltk::dialog::choice2(
-                        ws_clone.borrow().x + fltk::app::event_x(),
-                        ws_clone.borrow().y + fltk::app::event_y(),
+                        win.x() + fltk::app::event_x(),
+                        win.y() + fltk::app::event_y(),
                         &format!("Are you sure you want to delete node: '{title}'?"),
                         "Yes",
                         "No",
@@ -128,11 +121,11 @@ pub fn create_table(
                     }
                 });
             }
-            let ws_clone = state_rc.clone();
+            let win = win_clone.clone();
             let configs_clone = configs_rc.clone();
             let mut table_clone = table.clone();
             menu_btn.add("New", Shortcut::None, MenuFlag::Normal, move |_| {
-                if let Some(new_cfg) = crate::node_details_dialog::show_node_details(&ws_clone, None) {
+                if let Some(new_cfg) = crate::node_details_dialog::show_node_details(&win, None) {
                     configs_clone.borrow_mut().push(new_cfg);
                     table_clone.set_rows(configs_clone.borrow().len() as i32);
                     table_clone.redraw();
@@ -152,7 +145,7 @@ pub fn create_table(
                 if row >= 0 && (row as usize) < configs_rc.borrow().len() {
                     let cfg = configs_rc.borrow().get(row as usize).cloned();
                     if let Some(cfg) = cfg
-                        && let Some(details) = crate::node_details_dialog::show_node_details(&state_rc, Some(cfg))
+                        && let Some(details) = crate::node_details_dialog::show_node_details(&win_clone, Some(cfg))
                     {
                         configs_rc.borrow_mut()[row as usize] = details;
                         table.redraw();
@@ -218,16 +211,10 @@ pub fn create_table(
 }
 
 /// Helper function to refresh the table after config changes
-pub fn refresh_table(
-    table: &mut Table,
-    win: &mut Window,
-    menubar_height: i32,
-    state: &Rc<RefCell<crate::states_manager::WindowState>>,
-    nodes: &Rc<RefCell<Vec<overtls::Config>>>,
-) {
+pub fn refresh_table(table: &mut Table, win: &mut Window, nodes: &Rc<RefCell<Vec<overtls::Config>>>) {
     win.resizable(table);
     table.set_rows(nodes.borrow().len() as i32);
-    update_table_size(table, state.borrow().w, state.borrow().h - menubar_height - LOG_HEIGHT);
+    update_table_size(table, win.width(), win.height() - MENUBAR_HEIGHT - LOG_HEIGHT);
 }
 
 pub fn update_table_size(table: &mut Table, width: i32, height: i32) {
