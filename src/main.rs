@@ -6,8 +6,8 @@ use fltk::{
     app, dialog,
     enums::{Event, Shortcut},
     menu::{MenuBar, MenuFlag},
-    prelude::{DisplayExt, GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
-    text::{TextBuffer, TextDisplay},
+    prelude::{GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
+    terminal::Terminal,
     window::Window,
 };
 use std::cell::RefCell;
@@ -418,15 +418,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     win.show();
 
-    // Create a text display for logs on the bottom of the main window
-    let mut log_display = TextDisplay::new(0, win.h() - LOG_HEIGHT, win.w() - 1, LOG_HEIGHT, "");
-    let mut log_buffer = TextBuffer::default();
-    log_display.set_buffer(Some(log_buffer.clone()));
-    log_display.set_text_font(fltk::enums::Font::Courier);
-    log_display.set_text_size(12);
-    log_display.set_color(fltk::enums::Color::Black);
-    log_display.set_text_color(fltk::enums::Color::White);
-    win.add(&log_display);
+    // Use Terminal widget to display logs
+    let mut log_terminal = Terminal::new(0, win.h() - LOG_HEIGHT, win.w(), LOG_HEIGHT, None);
+    log_terminal.set_history_rows(MAX_LOG_LINES as i32);
+    win.add(&log_terminal);
 
     // Log receiving thread, only operates on TextBuffer
     let log_queue = std::sync::Arc::new(Mutex::new(Vec::new()));
@@ -438,7 +433,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
-    let mut log_lines: Vec<String> = Vec::new();
     while app.wait() {
         // Handle tray menu events
         while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
@@ -450,25 +444,21 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             }
         }
 
-        // Append logs from the queue to the log display
+        // Append logs from the queue to the Terminal
         if let Ok(mut logs) = log_queue.lock() {
-            let mut new_log_added = false;
             for msg in logs.drain(..) {
                 let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
                 let level_str = format!("{:<5}", msg.0.to_string());
-                let line = format!("[{ts} {level_str} {}] {}", msg.1, msg.2);
-                log_lines.push(line);
-                new_log_added = true;
-            }
-            if new_log_added {
-                // Limit log_lines to keep only the latest 1000 lines
-                if log_lines.len() > MAX_LOG_LINES {
-                    let start = log_lines.len() - MAX_LOG_LINES;
-                    log_lines = log_lines.split_off(start);
-                }
-                let new_text = log_lines.join("\n");
-                log_buffer.set_text(&new_text);
-                log_display.scroll(log_lines.len() as i32, 0);
+                let color = match msg.0 {
+                    log::Level::Error => "\x1b[31m", // red
+                    log::Level::Warn => "\x1b[33m",  // yellow
+                    log::Level::Info => "\x1b[32m",  // green
+                    log::Level::Debug => "\x1b[37m", // gray
+                    log::Level::Trace => "\x1b[36m", // cyan
+                };
+                let color_end = "\x1b[0m";
+                let line = format!("[{ts} {color}{level_str}{color_end} {}] {}\n", msg.1, msg.2);
+                log_terminal.append(&line);
             }
         }
     }
