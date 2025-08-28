@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     log::set_max_level(log::LevelFilter::Debug);
 
     let state = states_manager::load_app_state();
-    let tun2proxy_enable = state.system_settings.as_ref().and_then(|s| s.tun2proxy_enable).unwrap_or_default();
+    let tun2proxy_enable = state.system_settings.clone().unwrap_or_default().tun2proxy_enable.unwrap_or(true);
     let state = Rc::new(RefCell::new(state));
 
     if tun2proxy_enable && !run_as::is_elevated() {

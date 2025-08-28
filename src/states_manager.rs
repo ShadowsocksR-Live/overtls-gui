@@ -57,7 +57,7 @@ impl Default for SystemSettings {
             listen_password: None,
             pool_max_size: 100,
             cache_dns: false,
-            tun2proxy_enable: None,
+            tun2proxy_enable: Some(true),
             tun2proxy: None,
         }
     }
