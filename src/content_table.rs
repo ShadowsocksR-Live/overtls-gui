@@ -13,8 +13,8 @@ use std::rc::Rc;
 const HEADERS: [&str; 3] = ["Server Host", "Server Port", "Tunnel Path"];
 const ROW_HEADER_WIDTH: i32 = 150;
 
-pub fn create_table(top_offset: i32, selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCell<Vec<Config>>>, win: &Window) -> Table {
-    let mut table = Table::new(0, top_offset, win.w(), win.h() - top_offset - LOG_HEIGHT, "");
+pub fn create_table(selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCell<Vec<Config>>>, win: &Window) -> Table {
+    let mut table = Table::new(0, MENUBAR_HEIGHT, win.w(), win.h() - MENUBAR_HEIGHT - LOG_HEIGHT, "");
     table.set_cols(HEADERS.len() as i32);
     table.set_col_header(true);
     table.set_row_header(true);
@@ -211,9 +211,9 @@ pub fn create_table(top_offset: i32, selected_row: &Rc<RefCell<Option<usize>>>, 
 }
 
 /// Helper function to refresh the table after config changes
-pub fn refresh_table(table: &mut Table, win: &mut Window, nodes: &Rc<RefCell<Vec<overtls::Config>>>) {
+pub fn refresh_table(table: &mut Table, win: &mut Window, row_count: usize) {
     win.resizable(table);
-    table.set_rows(nodes.borrow().len() as i32);
+    table.set_rows(row_count as i32);
     update_table_size(table, win.width(), win.height() - MENUBAR_HEIGHT - LOG_HEIGHT);
 }
 

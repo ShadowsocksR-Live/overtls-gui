@@ -59,9 +59,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let mut menubar = MenuBar::new(0, 0, ws.w, MENUBAR_HEIGHT, "");
 
-    let mut table = content_table::create_table(MENUBAR_HEIGHT, &current_node_index, &remote_nodes, &win);
+    let mut table = content_table::create_table(&current_node_index, &remote_nodes, &win);
 
-    refresh_table(&mut table, &mut win, &remote_nodes);
+    refresh_table(&mut table, &mut win, remote_nodes.borrow().len());
 
     let w = win.clone();
     let state_clone = state.clone();
@@ -96,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             match paste_operations::screenshot_qr_import() {
                 Ok(config) => {
                     remote_nodes_clone.borrow_mut().push(config);
-                    refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+                    refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
                     dialog::message(x, y, "QR Code scanned and imported!");
                 }
                 Err(e) => dialog::alert(x, y, &format!("Failed to import QR Code: {e}")),
@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                         state_clone.borrow_mut().set_current_path(parent_dir);
                     }
                     remote_nodes_clone.borrow_mut().push(config);
-                    refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+                    refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
                 }
                 Err(e) => {
                     dialog::alert(x, y, &format!("Import failed: {e}"));
@@ -142,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     menubar.add("&File/New\t", Shortcut::Ctrl | 'n', MenuFlag::MenuDivider, move |_m| {
         if let Some(node) = crate::node_details_dialog::show_node_details(&w, None) {
             remote_nodes_clone.borrow_mut().push(node);
-            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
         }
     });
 
@@ -253,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         };
         if let Some(node) = crate::node_details_dialog::show_node_details(&w, Some(cfg)) {
             remote_nodes_clone.borrow_mut()[selected_row] = node;
-            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
         }
     });
 
@@ -313,7 +313,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         if confirm == Some(0) {
             remote_nodes_clone.borrow_mut().remove(selected_row);
             *current_node_index_clone.borrow_mut() = None;
-            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
         }
     });
 
@@ -347,7 +347,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
         if let Ok(config) = paste_operations::paste() {
             remote_nodes_clone.borrow_mut().push(config);
-            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
         } else {
             let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
             let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
@@ -387,7 +387,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             for config in new_configs {
                 remote_nodes_clone.borrow_mut().push(config);
             }
-            refresh_table(&mut table_clone, &mut w, &remote_nodes_clone);
+            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
             true
         } else {
             false
