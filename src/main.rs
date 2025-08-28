@@ -438,6 +438,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
+    let mut log_lines: Vec<String> = Vec::new();
     while app.wait() {
         // Handle tray menu events
         while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
@@ -455,19 +456,19 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             for msg in logs.drain(..) {
                 let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
                 let level_str = format!("{:<5}", msg.0.to_string());
-                log_buffer.append(&format!("[{ts} {level_str} {}] {}\n", msg.1, msg.2));
+                let line = format!("[{ts} {level_str} {}] {}", msg.1, msg.2);
+                log_lines.push(line);
                 new_log_added = true;
             }
             if new_log_added {
-                // Limit log_buffer to keep only the latest 1000 lines
-                let text = log_buffer.text();
-                let line_count = text.lines().count();
-                if line_count > MAX_LOG_LINES {
-                    let start = line_count - MAX_LOG_LINES;
-                    let new_text = text.lines().skip(start).collect::<Vec<_>>().join("\n");
-                    log_buffer.set_text(&new_text);
+                // Limit log_lines to keep only the latest 1000 lines
+                if log_lines.len() > MAX_LOG_LINES {
+                    let start = log_lines.len() - MAX_LOG_LINES;
+                    log_lines = log_lines.split_off(start);
                 }
-                log_display.scroll(log_buffer.length(), 0);
+                let new_text = log_lines.join("\n");
+                log_buffer.set_text(&new_text);
+                log_display.scroll(log_lines.len() as i32, 0);
             }
         }
     }
