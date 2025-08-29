@@ -1,9 +1,10 @@
+use crate::OverTlsNode;
 use fltk::{
     input::Input,
     prelude::{ImageExt, InputExt, WidgetBase},
 };
 
-pub fn paste() -> std::io::Result<overtls::Config> {
+pub fn paste() -> std::io::Result<OverTlsNode> {
     if fltk::app::clipboard_contains(fltk::app::ClipboardContent::Text) {
         let text_holder = Input::new(0, 0, 0, 0, None);
         fltk_paste_fix(&text_holder, fltk::app::ClipboardContent::Text);
@@ -11,8 +12,8 @@ pub fn paste() -> std::io::Result<overtls::Config> {
 
         log::trace!("Pasted text: {text}");
         // Try to parse the text as a config
-        return overtls::Config::from_json_str(&text)
-            .or_else(|_| overtls::Config::from_ssr_url(&text))
+        return OverTlsNode::from_json_str(&text)
+            .or_else(|_| OverTlsNode::from_ssr_url(&text))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Some unknown error occurred: {e}")));
     }
     if fltk::app::clipboard_contains(fltk::app::ClipboardContent::Image) {
@@ -30,7 +31,7 @@ pub fn paste() -> std::io::Result<overtls::Config> {
     Err(std::io::Error::other("Another paste operations not implemented"))
 }
 
-pub fn files_drag_n_drop() -> Vec<overtls::Config> {
+pub fn files_drag_n_drop() -> Vec<OverTlsNode> {
     let mut configs = Vec::new();
     for line in fltk::app::event_text().lines() {
         let path = line.trim();
@@ -45,10 +46,10 @@ pub fn files_drag_n_drop() -> Vec<overtls::Config> {
     configs
 }
 
-fn process_inputed_file(path: &str) -> std::io::Result<overtls::Config> {
+fn process_inputed_file(path: &str) -> std::io::Result<OverTlsNode> {
     use std::io::{Error, ErrorKind::InvalidData};
     // 1. try to parse as config file
-    if let Ok(config) = overtls::Config::from_config_file(path) {
+    if let Ok(config) = OverTlsNode::from_config_file(path) {
         return Ok(config);
     }
     // 2. try to parse as image
@@ -59,15 +60,15 @@ fn process_inputed_file(path: &str) -> std::io::Result<overtls::Config> {
 
     log::trace!("QR code detected: {qr_str}");
     // 4. try to convert QR code string to config
-    let config = overtls::Config::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))?;
+    let config = OverTlsNode::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))?;
 
     Ok(config)
 }
 
-pub fn screenshot_qr_import() -> std::io::Result<overtls::Config> {
+pub fn screenshot_qr_import() -> std::io::Result<OverTlsNode> {
     let img = screenshot_to_image()?;
     let scr_str = qr_decode(&img)?;
-    Ok(overtls::Config::from_ssr_url(&scr_str)?)
+    Ok(OverTlsNode::from_ssr_url(&scr_str)?)
 }
 
 fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
@@ -158,7 +159,7 @@ fn fltk_rgb_image_to_dynamic_image(rgb_img: &fltk::image::RgbImage) -> image::Dy
     image::DynamicImage::ImageRgba8(img_buf)
 }
 
-fn config_from_rgb_image(rgb_img: &fltk::image::RgbImage) -> std::io::Result<overtls::Config> {
+fn config_from_rgb_image(rgb_img: &fltk::image::RgbImage) -> std::io::Result<OverTlsNode> {
     use std::io::{Error, ErrorKind::InvalidData};
     let dyn_img = fltk_rgb_image_to_dynamic_image(rgb_img);
 
@@ -166,7 +167,7 @@ fn config_from_rgb_image(rgb_img: &fltk::image::RgbImage) -> std::io::Result<ove
     let qr_str = qr_decode(&dyn_img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
 
     // convert to overtls config
-    overtls::Config::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
+    OverTlsNode::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
 }
 
 /// Fix for FLTK paste operations.

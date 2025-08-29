@@ -12,6 +12,9 @@ use fltk::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::{cell::RefCell, sync::mpsc::Receiver};
+
+pub(crate) use overtls::Config as OverTlsNode;
 
 mod content_table;
 mod core;

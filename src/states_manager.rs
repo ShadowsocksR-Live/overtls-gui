@@ -1,3 +1,4 @@
+use crate::OverTlsNode;
 use fltk::{prelude::WidgetExt, window::Window};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -68,7 +69,7 @@ pub struct AppState {
     pub window: WindowState,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub working_node: Option<overtls::Config>,
+    pub working_node: Option<OverTlsNode>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub current_node_index: Option<usize>,
@@ -79,7 +80,7 @@ pub struct AppState {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_settings: Option<SystemSettings>,
 
-    pub remote_nodes: Vec<overtls::Config>,
+    pub remote_nodes: Vec<OverTlsNode>,
 }
 
 impl AppState {

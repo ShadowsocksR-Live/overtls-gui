@@ -1,6 +1,6 @@
-use crate::states_manager::SystemSettings;
+use crate::{OverTlsNode, states_manager::SystemSettings};
 
-pub fn merge_system_settings_to_node_config(system_settings: &SystemSettings, node_config: &mut overtls::Config) {
+pub fn merge_system_settings_to_node_config(system_settings: &SystemSettings, node_config: &mut OverTlsNode) {
     if let Some(client) = &mut node_config.client {
         client.listen_host = system_settings.listen_host.clone();
         client.listen_port = system_settings.listen_port;
@@ -22,7 +22,7 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 }
 
 pub fn main_task_block(
-    config: overtls::Config,
+    config: OverTlsNode,
     tun2proxy_args: Option<tun2proxy::Args>,
     token: overtls::CancellationToken,
 ) -> std::io::Result<()> {
@@ -50,7 +50,7 @@ pub fn main_task_block(
     })
 }
 
-pub fn cook_tun2proxy_config(system_settings: &SystemSettings, config: &overtls::Config) -> Option<tun2proxy::Args> {
+pub fn cook_tun2proxy_config(system_settings: &SystemSettings, config: &OverTlsNode) -> Option<tun2proxy::Args> {
     if !system_settings.tun2proxy_enable.unwrap_or_default() {
         return None;
     }
