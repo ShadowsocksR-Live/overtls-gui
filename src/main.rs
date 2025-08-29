@@ -3,7 +3,7 @@
 
 use crate::content_table::refresh_table;
 use fltk::{
-    app, dialog,
+    dialog,
     enums::{Event, Shortcut},
     menu::{MenuBar, MenuFlag},
     prelude::{GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     log::set_max_level(log::LevelFilter::Debug);
 
     let state = states_manager::load_app_state();
-    let tun2proxy_enable = state.system_settings.clone().unwrap_or_default().tun2proxy_enable.unwrap_or(true);
+    let tun2proxy_enable = state.system_settings.clone().unwrap_or_default().tun2proxy_enable.unwrap_or(false);
     let state = Rc::new(RefCell::new(state));
 
     if tun2proxy_enable && !run_as::is_elevated() {
@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes = Rc::new(RefCell::new(state.borrow().remote_nodes.clone()));
     let current_node_index = Rc::new(RefCell::new(state.borrow().current_node_index));
 
-    let app = app::App::default();
+    let _app = ::fltk::app::App::default();
 
     let ws = state.borrow().window.clone();
     let title = format!("OverTLS clients manager for {}", util::host_os_name());
@@ -63,24 +63,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     refresh_table(&mut table, &mut win, remote_nodes.borrow().len());
 
+    let (settings_tx, settings_rx) = std::sync::mpsc::channel();
     let w = win.clone();
     let state_clone = state.clone();
     menubar.add("&File/Settings", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
         let settings = state_clone.borrow().system_settings.clone().unwrap_or_default();
-        if let Some(new_settings) = settings_dialog::show_settings_dialog(&w, &settings) {
-            let tun2proxy_enable = new_settings.tun2proxy_enable.unwrap_or_default();
-            state_clone.borrow_mut().system_settings = Some(new_settings);
-            if tun2proxy_enable && !run_as::is_elevated() {
-                if let Ok(status) = core::restart_as_admin() {
-                    log::debug!("Restarted as admin with status code {status}, exiting current instance.");
-                    app::quit();
-                } else {
-                    let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
-                    let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
-                    dialog::alert(x, y, "Failed to restart as admin.");
-                }
-            }
-        }
+        settings_dialog::show_settings_dialog(&w, &settings, settings_tx.clone());
     });
 
     let remote_nodes_clone = remote_nodes.clone();
@@ -232,7 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     }
 
     menubar.add("&File/Quit\t", Shortcut::Ctrl | 'q', MenuFlag::Normal, move |_| {
-        app::quit();
+        ::fltk::app::quit();
     });
 
     // --- Edit menu group: View Details ---
@@ -333,7 +321,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             return;
         };
         if let Ok(text) = &node.generate_ssr_url() {
-            app::copy(text);
+            ::fltk::app::copy(text);
             let name = node.remarks.clone().unwrap_or_default();
             dialog::message(x, y, &format!("Node '{name}'s URL copied to clipboard"));
         } else {
@@ -433,15 +421,32 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
-    while app.wait() {
+    while ::fltk::app::wait() {
         // Handle tray menu events
         while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
             if event.id == show_item.id() {
                 win.show();
             } else if event.id == quit_item.id() {
-                app::quit();
+                ::fltk::app::quit();
                 break;
             }
+        }
+
+        // Deal with settings dialog results
+        while let Ok(new_settings) = settings_rx.try_recv() {
+            let tun2proxy_enable = new_settings.tun2proxy_enable.unwrap_or_default();
+            state.borrow_mut().system_settings = Some(new_settings);
+            if tun2proxy_enable && !run_as::is_elevated() {
+                if let Ok(status) = core::restart_as_admin() {
+                    log::debug!("Restarted as admin with status code {status}, exiting current instance.");
+                    ::fltk::app::quit();
+                } else {
+                    let x = win.x() + (win.width() - COMMON_DLG_W) / 2;
+                    let y = win.y() + (win.height() - COMMON_DLG_H) / 2;
+                    dialog::alert(x, y, "Failed to restart as admin.");
+                }
+            }
+            log::info!("Settings updated via channel");
         }
 
         // Append logs from the queue to the Terminal

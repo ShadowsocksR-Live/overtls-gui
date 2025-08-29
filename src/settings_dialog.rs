@@ -86,7 +86,8 @@ macro_rules! add_row_spin {
     }};
 }
 
-pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings) -> Option<SystemSettings> {
+/// Pop up the settings dialog, and send the result via channel to avoid idle closure accumulation.
+pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: std::sync::mpsc::Sender<SystemSettings>) {
     let dialog_w = 600;
     let dialog_h = 320;
     let x = win.x() + (win.width() - dialog_w) / 2;
@@ -143,9 +144,6 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings) -> O
     remote_dns_address.set_value(tun2proxy_cfg.dns_addr.to_string().as_str());
     dns_strategy.set_value(tun2proxy_dns_strategy_index(tun2proxy_cfg.dns) as i32);
 
-    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
-    let result_cb = result.clone();
-
     let mut submit_btn = Button::new(dialog_w / 2 - 60, dialog_h - 45, 120, 35, "Submit");
     dlg.end();
     dlg.show();
@@ -193,13 +191,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings) -> O
             tun2proxy_enable: Some(tun2proxy_enable_val),
             tun2proxy: tun2proxy_cfg,
         };
-        *result_cb.borrow_mut() = Some(new_settings);
+        let _ = tx.send(new_settings);
         dlg_cb.hide();
     });
-
-    while dlg.visible() {
-        fltk::app::wait();
-    }
-
-    result.borrow().clone()
 }

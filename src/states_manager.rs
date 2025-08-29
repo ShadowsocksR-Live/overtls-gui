@@ -30,7 +30,7 @@ impl WindowState {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemSettings {
     pub listen_host: String,
     pub listen_port: u16,
@@ -52,7 +52,7 @@ impl Default for SystemSettings {
     fn default() -> Self {
         SystemSettings {
             listen_host: "127.0.0.1".into(),
-            listen_port: 1080,
+            listen_port: 5080,
             listen_user: None,
             listen_password: None,
             pool_max_size: 100,
