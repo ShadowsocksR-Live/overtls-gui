@@ -53,6 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let _app = ::fltk::app::App::default();
 
+    let log_cache = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+
     let ws = state.borrow().window.clone();
     let title = format!("OverTLS clients manager for {}", util::host_os_name());
     let mut win = Window::new(ws.x, ws.y, ws.w, ws.h, title.as_str());
@@ -96,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let state_clone = state.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&File/Import Node from File", Shortcut::None, MenuFlag::Normal, move |_menu| {
+    menubar.add("&File/Import Node File\t", Shortcut::Ctrl | 'o', MenuFlag::Normal, move |_m| {
         let dlg_w = 600;
         let dlg_h = 400;
         let x = w.x() + (w.w() - dlg_w) / 2;
@@ -332,7 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes_clone = remote_nodes.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
+    menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::MenuDivider, move |_menu| {
         if let Ok(config) = paste_operations::paste() {
             remote_nodes_clone.borrow_mut().push(config);
             refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
@@ -340,6 +342,26 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
             let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
             dialog::alert(x, y, "No valid configuration found in clipboard.");
+        }
+    });
+
+    // --- Edit menu group: Copy logs ---
+    let log_cache_for_copy = log_cache.clone();
+    let win_for_copy = win.clone();
+    menubar.add("&Edit/Copy logs\t", Shortcut::Ctrl | 'l', MenuFlag::Normal, move |_menu| {
+        let x = win_for_copy.x() + (win_for_copy.width() - COMMON_DLG_W) / 2;
+        let y = win_for_copy.y() + (win_for_copy.height() - COMMON_DLG_H) / 2;
+        let mut all_logs = String::new();
+        if let Ok(logs) = log_cache_for_copy.lock() {
+            for line in logs.iter() {
+                all_logs.push_str(line);
+            }
+        }
+        if all_logs.is_empty() {
+            dialog::alert(x, y, "No logs to copy.");
+        } else {
+            ::fltk::app::copy(&all_logs);
+            dialog::message(x, y, "All logs copied to clipboard.");
         }
     });
 
@@ -464,6 +486,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 let color_end = "\x1b[0m";
                 let line = format!("[{ts} {color}{level_str}{color_end} {}] {}\n", msg.1, msg.2);
                 log_terminal.append(&line);
+
+                if let Ok(mut cache) = log_cache.lock() {
+                    let line_cache = format!("[{ts} {level_str} {}] {}\n", msg.1, msg.2);
+                    cache.push(line_cache);
+                    if cache.len() > MAX_LOG_LINES {
+                        let drop_n = cache.len() - MAX_LOG_LINES;
+                        cache.drain(0..drop_n);
+                    }
+                }
             }
         }
     }
