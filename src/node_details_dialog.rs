@@ -1,15 +1,14 @@
+use crate::OverTlsNode;
 use fltk::{
     button::{Button, CheckButton},
-    enums::Align,
+    enums::{Align, Event, Key},
     frame::Frame,
     group::Flex,
     input::Input,
     prelude::{ButtonExt, GroupExt, InputExt, WidgetBase, WidgetExt},
     window::Window,
 };
-use overtls::{ClientConfig, Config, TunnelPath};
-use std::cell::RefCell;
-use std::rc::Rc;
+use overtls::{ClientConfig, TunnelPath};
 
 macro_rules! add_row_input {
     ($flex:expr, $label:expr, $input:ident) => {{
@@ -38,7 +37,7 @@ macro_rules! add_row_check {
     }};
 }
 
-pub fn show_node_details(win: &Window, node_cfg: Option<Config>) -> Option<Config> {
+pub fn show_node_details(win: &Window, node_cfg: Option<OverTlsNode>, tx: std::sync::mpsc::Sender<Option<OverTlsNode>>) {
     let dialog_w = 500;
     let dialog_h = 360;
     let x = win.x() + (win.w() - dialog_w) / 2;
@@ -52,10 +51,10 @@ pub fn show_node_details(win: &Window, node_cfg: Option<Config>) -> Option<Confi
         },
     };
 
-    let dlg = Rc::new(RefCell::new(Window::new(x, y, dialog_w, dialog_h, &*title)));
+    let mut dlg = Window::new(x, y, dialog_w, dialog_h, &*title);
 
     let mut flex = Flex::default_fill().column();
-    flex.fixed(&*dlg.borrow(), dialog_h);
+    flex.fixed(&dlg, dialog_h);
 
     let mut remarks = add_row_input!(flex, "Remarks", remarks);
     let mut tunnel_path = add_row_input!(flex, "Tunnel Path", tunnel_path);
@@ -81,16 +80,14 @@ pub fn show_node_details(win: &Window, node_cfg: Option<Config>) -> Option<Confi
         }
     }
 
-    let result = Rc::new(RefCell::new(None));
-    let result_cb = result.clone();
-
     let mut submit_btn = Button::default().with_label("Submit");
     flex.fixed(&submit_btn, 40);
 
-    dlg.borrow_mut().end();
-    dlg.borrow_mut().show();
+    dlg.end();
+    dlg.show();
 
-    let dlg_cb = dlg.clone();
+    let mut dlg_cb = dlg.clone();
+    let tx_cb = tx.clone();
     submit_btn.set_callback(move |_b| {
         let mut client = ClientConfig::default();
 
@@ -110,18 +107,33 @@ pub fn show_node_details(win: &Window, node_cfg: Option<Config>) -> Option<Confi
         client.cafile = if cafile.value().is_empty() { None } else { Some(cafile.value()) };
         client.dangerous_mode = Some(dangerous_mode.value());
 
-        let config = Config {
+        let config = OverTlsNode {
             remarks: if remarks.value().is_empty() { None } else { Some(remarks.value()) },
             tunnel_path: TunnelPath::Single(tunnel_path.value()),
             client: Some(client),
-            ..Config::default()
+            ..OverTlsNode::default()
         };
-        *result_cb.borrow_mut() = Some(config);
-        dlg_cb.borrow_mut().hide();
+        let _ = tx_cb.send(Some(config));
+        dlg_cb.hide();
     });
 
-    while dlg.borrow().visible() {
-        fltk::app::wait();
-    }
-    result.borrow().clone()
+    // Esc key to close the dialog and return None
+    let mut dlg_esc = dlg.clone();
+    let tx_esc = tx.clone();
+    dlg.handle(move |_, ev| {
+        if ev == Event::KeyDown && fltk::app::event_key() == Key::Escape {
+            let _ = tx_esc.send(None);
+            dlg_esc.hide();
+            return true;
+        }
+        false
+    });
+
+    // Closing the dialog using the window's close button
+    let mut dlg_close = dlg.clone();
+    let tx_close = tx.clone();
+    dlg.set_callback(move |_w| {
+        let _ = tx_close.send(None);
+        dlg_close.hide();
+    });
 }

@@ -1,4 +1,6 @@
-use crate::{COMMON_DLG_H, COMMON_DLG_W, LOG_HEIGHT, MENUBAR_HEIGHT};
+use crate::{
+    COMMON_DLG_H, COMMON_DLG_W, LOG_HEIGHT, MENUBAR_HEIGHT, OverTlsNode, OverTlsNodeReceivers, node_details_dialog::show_node_details,
+};
 use fltk::{
     enums::{Align, Color, Event, FrameType, Shortcut},
     menu::MenuFlag,
@@ -6,14 +8,18 @@ use fltk::{
     table::{Table, TableContext},
     window::Window,
 };
-use overtls::Config;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const HEADERS: [&str; 3] = ["Server Host", "Server Port", "Tunnel Path"];
 const ROW_HEADER_WIDTH: i32 = 150;
 
-pub fn create_table(selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCell<Vec<Config>>>, win: &Window) -> Table {
+pub fn create_table(
+    selected_row: &Rc<RefCell<Option<usize>>>,
+    nodes: &Rc<RefCell<Vec<OverTlsNode>>>,
+    win: &Window,
+    node_details_receivers: OverTlsNodeReceivers,
+) -> Table {
     let mut table = Table::new(0, MENUBAR_HEIGHT, win.w(), win.h() - MENUBAR_HEIGHT - LOG_HEIGHT, "");
     table.set_cols(HEADERS.len() as i32);
     table.set_col_header(true);
@@ -61,15 +67,14 @@ pub fn create_table(selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCel
 
             if (table_context == TableContext::Cell || table_context == TableContext::RowHeader) && 0 <= row && row < count as i32 {
                 let configs_clone = configs_rc.clone();
-                let mut table_clone = table.clone();
                 let win = win_clone.clone();
+                let node_details_receivers = node_details_receivers.clone();
                 menu_btn.add("View details", Shortcut::None, MenuFlag::Normal, move |_m| {
                     let cfg = configs_clone.borrow().get(row as usize).cloned();
-                    if let Some(cfg) = cfg
-                        && let Some(details) = crate::node_details_dialog::show_node_details(&win, Some(cfg))
-                    {
-                        configs_clone.borrow_mut()[row as usize] = details;
-                        table_clone.redraw();
+                    if let Some(cfg) = cfg {
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        show_node_details(&win, Some(cfg), tx);
+                        node_details_receivers.lock().unwrap().push((Some(row as usize), rx));
                     }
                 });
 
@@ -122,14 +127,11 @@ pub fn create_table(selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCel
                 });
             }
             let win = win_clone.clone();
-            let configs_clone = configs_rc.clone();
-            let mut table_clone = table.clone();
-            menu_btn.add("New", Shortcut::None, MenuFlag::Normal, move |_| {
-                if let Some(new_cfg) = crate::node_details_dialog::show_node_details(&win, None) {
-                    configs_clone.borrow_mut().push(new_cfg);
-                    table_clone.set_rows(configs_clone.borrow().len() as i32);
-                    table_clone.redraw();
-                }
+            let node_details_receivers = node_details_receivers.clone();
+            menu_btn.add("New", Shortcut::None, MenuFlag::Normal, move |_m| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                show_node_details(&win, None, tx);
+                node_details_receivers.lock().unwrap().push((None, rx));
             });
             menu_btn.popup();
 
@@ -144,11 +146,10 @@ pub fn create_table(selected_row: &Rc<RefCell<Option<usize>>>, nodes: &Rc<RefCel
                 let row = table.callback_row();
                 if row >= 0 && (row as usize) < configs_rc.borrow().len() {
                     let cfg = configs_rc.borrow().get(row as usize).cloned();
-                    if let Some(cfg) = cfg
-                        && let Some(details) = crate::node_details_dialog::show_node_details(&win_clone, Some(cfg))
-                    {
-                        configs_rc.borrow_mut()[row as usize] = details;
-                        table.redraw();
+                    if let Some(cfg) = cfg {
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        show_node_details(&win_clone, Some(cfg), tx);
+                        node_details_receivers.lock().unwrap().push((Some(row as usize), rx));
                     }
                 }
                 return true;

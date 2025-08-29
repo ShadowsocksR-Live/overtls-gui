@@ -26,8 +26,5 @@ pub fn qr_code_dialog(parent: &Window, title: &str, ssr_url: &str) -> std::io::R
     frame.set_image(Some(png));
     win.end();
     win.show();
-    while win.shown() {
-        fltk::app::wait();
-    }
     Ok(())
 }

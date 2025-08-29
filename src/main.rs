@@ -1,7 +1,7 @@
 // To remove the console window on Windows in release mode
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::content_table::refresh_table;
+use crate::{content_table::refresh_table, node_details_dialog::show_node_details};
 use fltk::{
     dialog,
     enums::{Event, Shortcut},
@@ -10,11 +10,12 @@ use fltk::{
     terminal::Terminal,
     window::Window,
 };
-use std::cell::RefCell;
 use std::rc::Rc;
 use std::{cell::RefCell, sync::mpsc::Receiver};
 
 pub(crate) use overtls::Config as OverTlsNode;
+
+pub(crate) type OverTlsNodeReceivers = std::sync::Arc<std::sync::Mutex<Vec<(Option<usize>, Receiver<Option<OverTlsNode>>)>>>;
 
 mod content_table;
 mod core;
@@ -54,6 +55,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes = Rc::new(RefCell::new(state.borrow().remote_nodes.clone()));
     let current_node_index = Rc::new(RefCell::new(state.borrow().current_node_index));
 
+    // Popup window event-driven queue
+    let node_details_receivers: OverTlsNodeReceivers = Arc::new(Mutex::new(Vec::new()));
+
     let _app = ::fltk::app::App::default();
 
     let log_cache = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
@@ -64,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let mut menubar = MenuBar::new(0, 0, ws.w, MENUBAR_HEIGHT, "");
 
-    let mut table = content_table::create_table(&current_node_index, &remote_nodes, &win);
+    let mut table = content_table::create_table(&current_node_index, &remote_nodes, &win, node_details_receivers.clone());
 
     refresh_table(&mut table, &mut win, remote_nodes.borrow().len());
 
@@ -114,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         // Show file chooser dialog and import config file
         let path = util::file_chooser_open_file(x, y, dlg_w, dlg_h, "Select config file", "*.json", origin_path.to_str());
         if let Some(path) = &path {
-            match overtls::Config::from_config_file(path) {
+            match OverTlsNode::from_config_file(path) {
                 Ok(config) => {
                     if let Some(parent_dir) = std::path::Path::new(path).parent() {
                         state_clone.borrow_mut().set_current_path(parent_dir);
@@ -129,14 +133,14 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
-    let remote_nodes_clone = remote_nodes.clone();
-    let mut table_clone = table.clone();
-    let mut w = win.clone();
+    // let remote_nodes_clone = remote_nodes.clone();
+    // let mut table_clone = table.clone();
+    let w = win.clone();
+    let node_details_receivers_clone = node_details_receivers.clone();
     menubar.add("&File/New\t", Shortcut::Ctrl | 'n', MenuFlag::MenuDivider, move |_m| {
-        if let Some(node) = crate::node_details_dialog::show_node_details(&w, None) {
-            remote_nodes_clone.borrow_mut().push(node);
-            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
-        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        show_node_details(&w, None, tx);
+        node_details_receivers_clone.lock().unwrap().push((None, rx));
     });
 
     // --- Run/Stop menu actions ---
@@ -231,8 +235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // --- Edit menu group: View Details ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
-    let mut table_clone = table.clone();
-    let mut w = win.clone();
+    let w = win.clone();
+    let node_details_receivers_clone = node_details_receivers.clone();
     menubar.add("&Edit/View Details", Shortcut::None, MenuFlag::Normal, move |_menu| {
         let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
@@ -244,10 +248,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             dialog::alert(x, y, "Selected node not found.");
             return;
         };
-        if let Some(node) = crate::node_details_dialog::show_node_details(&w, Some(cfg)) {
-            remote_nodes_clone.borrow_mut()[selected_row] = node;
-            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
-        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        show_node_details(&w, Some(cfg), tx);
+        node_details_receivers_clone.lock().unwrap().push((Some(selected_row), rx));
     });
 
     // --- Edit menu group: View QR Code ---
@@ -473,6 +476,24 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             }
             log::info!("Settings updated via channel");
         }
+
+        // Handle results from node details dialogs
+        node_details_receivers.lock().unwrap().retain(|(row_opt, rx)| {
+            match rx.try_recv() {
+                Ok(Some(details)) => {
+                    if let Some(row) = row_opt {
+                        remote_nodes.borrow_mut()[*row] = details; // Editing existing node
+                    } else {
+                        remote_nodes.borrow_mut().push(details); // New node
+                    }
+                    refresh_table(&mut table, &mut win, remote_nodes.borrow().len());
+                    false // remove
+                }
+                Ok(None) => false,                                 // user cancelled, remove
+                Err(std::sync::mpsc::TryRecvError::Empty) => true, // retain
+                Err(_) => false,                                   // channel closed, remove
+            }
+        });
 
         // Append logs from the queue to the Terminal
         if let Ok(mut logs) = log_queue.lock() {
