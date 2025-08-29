@@ -6,8 +6,7 @@ use fltk::{
     dialog,
     enums::{Event, Shortcut},
     menu::{MenuBar, MenuFlag},
-    prelude::{GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
-    terminal::Terminal,
+    prelude::{DisplayExt, GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
     window::Window,
 };
 use std::rc::Rc;
@@ -31,7 +30,6 @@ pub(crate) const MENUBAR_HEIGHT: i32 = 30;
 pub(crate) const COMMON_DLG_W: i32 = 400;
 pub(crate) const COMMON_DLG_H: i32 = 100;
 pub(crate) const LOG_HEIGHT: i32 = 240;
-pub(crate) const MAX_LOG_LINES: usize = 1000;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // #[cfg(debug_assertions)]
@@ -59,8 +57,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let node_details_receivers: OverTlsNodeReceivers = Arc::new(Mutex::new(Vec::new()));
 
     let _app = ::fltk::app::App::default();
-
-    let log_cache = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
 
     let ws = state.borrow().window.clone();
     let title = format!("OverTLS clients manager for {}", util::host_os_name());
@@ -340,7 +336,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes_clone = remote_nodes.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::MenuDivider, move |_menu| {
+    menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
         if let Ok(config) = paste_operations::paste() {
             remote_nodes_clone.borrow_mut().push(config);
             refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
@@ -348,26 +344,6 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
             let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
             dialog::alert(x, y, "No valid configuration found in clipboard.");
-        }
-    });
-
-    // --- Edit menu group: Copy logs ---
-    let log_cache_for_copy = log_cache.clone();
-    let win_for_copy = win.clone();
-    menubar.add("&Edit/Copy logs\t", Shortcut::Ctrl | 'l', MenuFlag::Normal, move |_menu| {
-        let x = win_for_copy.x() + (win_for_copy.width() - COMMON_DLG_W) / 2;
-        let y = win_for_copy.y() + (win_for_copy.height() - COMMON_DLG_H) / 2;
-        let mut all_logs = String::new();
-        if let Ok(logs) = log_cache_for_copy.lock() {
-            for line in logs.iter() {
-                all_logs.push_str(line);
-            }
-        }
-        if all_logs.is_empty() {
-            dialog::alert(x, y, "No logs to copy.");
-        } else {
-            ::fltk::app::copy(&all_logs);
-            dialog::message(x, y, "All logs copied to clipboard.");
         }
     });
 
@@ -434,12 +410,52 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     win.show();
 
-    // Use Terminal widget to display logs
-    let mut log_terminal = Terminal::new(0, win.h() - LOG_HEIGHT, win.w(), LOG_HEIGHT, None);
-    log_terminal.set_history_rows(MAX_LOG_LINES as i32);
-    win.add(&log_terminal);
+    use fltk::enums::{Color, Font};
+    use fltk::text::{StyleTableEntry, TextBuffer, TextDisplay};
+    // Create a text display for logs on the bottom of the main window
+    let mut log_display = TextDisplay::new(0, win.h() - LOG_HEIGHT, win.w(), LOG_HEIGHT, None);
+    let mut log_buffer = TextBuffer::default();
+    let mut style_buffer = TextBuffer::default();
+    log_display.set_buffer(Some(log_buffer.clone()));
+    log_display.set_color(Color::Black);
+    win.add(&log_display);
 
-    // Log receiving thread, only operates on TextBuffer
+    // Define style table: A=Red, B=Yellow, C=Green, D=Gray, E=Blue
+    let style_table = [
+        StyleTableEntry {
+            color: Color::Red,
+            font: Font::Courier,
+            size: 12,
+        }, // A
+        StyleTableEntry {
+            color: Color::Yellow,
+            font: Font::Courier,
+            size: 12,
+        }, // B
+        StyleTableEntry {
+            color: Color::Green,
+            font: Font::Courier,
+            size: 12,
+        }, // C
+        StyleTableEntry {
+            color: Color::Light1,
+            font: Font::Courier,
+            size: 12,
+        }, // D
+        StyleTableEntry {
+            color: Color::Blue,
+            font: Font::Courier,
+            size: 12,
+        }, // E
+    ];
+    let style_map = |level: &log::Level| match level {
+        log::Level::Error => 'A',
+        log::Level::Warn => 'B',
+        log::Level::Info => 'C',
+        log::Level::Debug => 'D',
+        log::Level::Trace => 'E',
+    };
+
     let log_queue = std::sync::Arc::new(Mutex::new(Vec::new()));
     let log_queue_thread = log_queue.clone();
     std::thread::spawn(move || {
@@ -495,30 +511,48 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             }
         });
 
-        // Append logs from the queue to the Terminal
+        // Append logs to TextDisplay with highligting
         if let Ok(mut logs) = log_queue.lock() {
+            let mut new_log_added = false;
             for msg in logs.drain(..) {
                 let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-                let level_str = format!("{:<5}", msg.0.to_string());
-                let color = match msg.0 {
-                    log::Level::Error => "\x1b[31m", // red
-                    log::Level::Warn => "\x1b[33m",  // yellow
-                    log::Level::Info => "\x1b[32m",  // green
-                    log::Level::Debug => "\x1b[37m", // gray
-                    log::Level::Trace => "\x1b[36m", // cyan
-                };
-                let color_end = "\x1b[0m";
-                let line = format!("[{ts} {color}{level_str}{color_end} {}] {}\n", msg.1, msg.2);
-                log_terminal.append(&line);
-
-                if let Ok(mut cache) = log_cache.lock() {
-                    let line_cache = format!("[{ts} {level_str} {}] {}\n", msg.1, msg.2);
-                    cache.push(line_cache);
-                    if cache.len() > MAX_LOG_LINES {
-                        let drop_n = cache.len() - MAX_LOG_LINES;
-                        cache.drain(0..drop_n);
+                let level_char = style_map(&msg.0);
+                let line = format!("[{ts} {:<5} {}] {}\n", msg.0, msg.1, msg.2);
+                log_buffer.append(&line);
+                style_buffer.append(&level_char.to_string().repeat(line.len()));
+                new_log_added = true;
+            }
+            if new_log_added {
+                // Self-defined maximum log lines
+                const MAX_LOG_LINES: usize = 1000;
+                let text = log_buffer.text();
+                let log_lines: Vec<&str> = text.lines().collect();
+                if log_lines.len() > MAX_LOG_LINES {
+                    let start = log_lines.len() - MAX_LOG_LINES;
+                    let new_text = log_lines[start..].join("\n") + "\n";
+                    // Calculate character positions for style buffer
+                    let mut char_start = 0;
+                    for log_lines_i in log_lines.iter().take(start) {
+                        char_start += log_lines_i.len() + 1; // +1 for '\n'
                     }
+                    let mut char_end = char_start;
+                    for log_lines_i in log_lines.iter().skip(start) {
+                        char_end += log_lines_i.len() + 1;
+                    }
+                    let style_text = style_buffer.text();
+                    let new_style = if char_end <= style_text.len() {
+                        &style_text[char_start..char_end]
+                    } else if char_start < style_text.len() {
+                        &style_text[char_start..]
+                    } else {
+                        ""
+                    };
+                    log_buffer.set_text(&new_text);
+                    style_buffer.set_text(new_style);
                 }
+                log_display.set_highlight_data(style_buffer.clone(), style_table);
+                let lines = log_buffer.count_lines(0, log_buffer.length());
+                log_display.scroll(lines, 0);
             }
         }
     }
