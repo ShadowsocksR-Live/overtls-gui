@@ -1,5 +1,4 @@
 use crate::OverTlsNode;
-use fltk::{prelude::WidgetExt, window::Window};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -23,7 +22,8 @@ impl Default for WindowState {
 }
 
 impl WindowState {
-    pub fn refresh_window(&mut self, win: &Window) {
+    pub fn refresh_window(&mut self, win: &fltk::window::Window) {
+        use fltk::prelude::WidgetExt;
         self.h = win.height();
         self.w = win.width();
         self.x = win.x();

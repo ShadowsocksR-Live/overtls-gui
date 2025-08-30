@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
 chrono = "0.4.41"
 dirs = "6.0.0"
 env_logger = "0.11.8"
@@ -14,7 +15,7 @@ overtls = { version = "0.3.6" }
 qrcode = "0.14.1"
 rfd = { version = "0.15.4", default-features = false, features = ["xdg-portal", "tokio"] }
 rqrr = "0.10.0"
-run-as = { version = "*", git = "https://github.com/ssrlive/run-as.git", rev = "caea523" }
+run-as = { version = "1.2.1", default-features = false }
 screenshot = { version = "0.0.7", git = "https://github.com/ssrlive/screenshot-rs.git", rev = "36f877f" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.143"

@@ -1,34 +1,28 @@
 use crate::OverTlsNode;
-use fltk::{
-    input::Input,
-    prelude::{ImageExt, InputExt, WidgetBase},
-};
 
 pub fn paste() -> std::io::Result<OverTlsNode> {
-    if fltk::app::clipboard_contains(fltk::app::ClipboardContent::Text) {
-        let text_holder = Input::new(0, 0, 0, 0, None);
-        fltk_paste_fix(&text_holder, fltk::app::ClipboardContent::Text);
-        let text = text_holder.value();
+    // Use arboard::Clipboard for cross-platform clipboard access
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| std::io::Error::other(format!("Clipboard error: {e}")))?;
 
+    // Try to get text from clipboard
+    if let Ok(text) = clipboard.get_text() {
         log::trace!("Pasted text: {text}");
         // Try to parse the text as a config
         return OverTlsNode::from_json_str(&text)
             .or_else(|_| OverTlsNode::from_ssr_url(&text))
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Some unknown error occurred: {e}")));
     }
-    if fltk::app::clipboard_contains(fltk::app::ClipboardContent::Image) {
-        log::trace!("Pasted image");
 
-        // Bug workaround: even if we need only image, we must call fltk_paste_fix on a dummy widget first
-        let dummy = Input::new(0, 0, 0, 0, None);
-        fltk_paste_fix(&dummy, fltk::app::ClipboardContent::Image);
-
-        if let Some(img) = fltk::app::event_clipboard_image() {
-            return config_from_rgb_image(&img);
-        }
-    }
-
-    Err(std::io::Error::other("Another paste operations not implemented"))
+    // Try to get image from clipboard (requires arboard image-data feature)
+    let Ok(img) = clipboard.get_image() else {
+        return Err(std::io::Error::other("Another paste operations not implemented"));
+    };
+    // Convert arboard::ImageData to image::DynamicImage
+    let dyn_img = image::DynamicImage::ImageRgba8(
+        image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned())
+            .ok_or_else(|| std::io::Error::other("Failed to convert clipboard image"))?,
+    );
+    config_from_image(&dyn_img)
 }
 
 pub fn files_drag_n_drop() -> Vec<OverTlsNode> {
@@ -115,70 +109,12 @@ fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
     Ok(content)
 }
 
-fn fltk_rgb_image_to_dynamic_image(rgb_img: &fltk::image::RgbImage) -> image::DynamicImage {
-    let (w, h, d) = (rgb_img.width(), rgb_img.height(), rgb_img.depth());
-    let data = rgb_img.to_rgb_data();
-
-    // create RgbaImage
-    let mut img_buf = image::RgbaImage::new(w as u32, h as u32);
-    for y in 0..h {
-        for x in 0..w {
-            let idx = ((y * w + x) * d as i32) as usize;
-            let (r, g, b, a) = match d {
-                fltk::enums::ColorDepth::L8 => {
-                    // grayscale
-                    let v = data[idx];
-                    (v, v, v, 255)
-                }
-                fltk::enums::ColorDepth::La8 => {
-                    // grayscale + Alpha
-                    let v = data[idx];
-                    let a = data[idx + 1];
-                    (v, v, v, a)
-                }
-                fltk::enums::ColorDepth::Rgb8 => {
-                    // RGB
-                    let r = data[idx];
-                    let g = data[idx + 1];
-                    let b = data[idx + 2];
-                    (r, g, b, 255)
-                }
-                fltk::enums::ColorDepth::Rgba8 => {
-                    // RGBA
-                    let r = data[idx];
-                    let g = data[idx + 1];
-                    let b = data[idx + 2];
-                    let a = data[idx + 3];
-                    (r, g, b, a)
-                }
-            };
-            img_buf.put_pixel(x as u32, y as u32, image::Rgba([r, g, b, a]));
-        }
-    }
-    // convert to DynamicImage
-    image::DynamicImage::ImageRgba8(img_buf)
-}
-
-fn config_from_rgb_image(rgb_img: &fltk::image::RgbImage) -> std::io::Result<OverTlsNode> {
+fn config_from_image(dyn_img: &image::DynamicImage) -> std::io::Result<OverTlsNode> {
     use std::io::{Error, ErrorKind::InvalidData};
-    let dyn_img = fltk_rgb_image_to_dynamic_image(rgb_img);
 
     // QR parsing
-    let qr_str = qr_decode(&dyn_img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
+    let qr_str = qr_decode(dyn_img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
 
     // convert to overtls config
     OverTlsNode::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
-}
-
-/// Fix for FLTK paste operations.
-/// This function checks if the clipboard contains the specified content type
-/// and performs the paste operation accordingly.
-/// It is a workaround for the issue where the `fltk::app::paste(widget)` method
-pub fn fltk_paste_fix<T: fltk::prelude::WidgetExt>(widget: &T, k: fltk::app::ClipboardContent) {
-    if fltk::app::clipboard_contains(k) {
-        match k {
-            fltk::app::ClipboardContent::Text => fltk::app::paste_text(widget),
-            fltk::app::ClipboardContent::Image => fltk::app::paste_image(widget),
-        }
-    }
 }
