@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub const fn host_os_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "Windows"
@@ -23,7 +25,7 @@ pub fn thread_handle_join_with_timeout<T>(handle: std::thread::JoinHandle<T>, ti
     }
 }
 
-pub fn file_chooser_open_file(x: i32, y: i32, w: i32, h: i32, title: &str, filter: &str, default_path: Option<&str>) -> Option<String> {
+pub fn file_chooser_open_file(x: i32, y: i32, w: i32, h: i32, title: &str, filter: &str, default_path: Option<&str>) -> Option<PathBuf> {
     let mut chooser = fltk::dialog::FileChooser::new(
         default_path.unwrap_or("."),          // directory
         filter,                               // filter or pattern
@@ -57,5 +59,24 @@ pub fn file_chooser_open_file(x: i32, y: i32, w: i32, h: i32, title: &str, filte
         }
     }
 
-    Some(chooser.value(1).unwrap())
+    chooser.value(1).map(PathBuf::from)
+}
+
+pub fn file_chooser_save_file(x: i32, y: i32, w: i32, h: i32, title: &str, filter: &str, default_path: Option<&str>) -> Option<PathBuf> {
+    let mut chooser = fltk::dialog::FileChooser::new(
+        default_path.unwrap_or("."),
+        filter,
+        fltk::dialog::FileChooserType::Single | fltk::dialog::FileChooserType::Create,
+        title,
+    );
+    chooser.show();
+
+    use fltk::prelude::WidgetExt;
+    chooser.window().set_pos(x, y);
+    chooser.window().set_size(w, h);
+
+    while chooser.shown() {
+        fltk::app::wait();
+    }
+    chooser.value(1).map(PathBuf::from)
 }

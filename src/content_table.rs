@@ -78,6 +78,32 @@ pub fn create_table(
                     }
                 });
 
+                // Export Node menu item
+                let win = win_clone.clone();
+                let configs_clone = configs_rc.clone();
+                menu_btn.add("Export Node", Shortcut::None, MenuFlag::Normal, move |_m| {
+                    let Some(cfg) = configs_clone.borrow().get(row as usize).cloned() else {
+                        return;
+                    };
+                    let x = win.x() + (win.w() - crate::COMMON_DLG_W) / 2;
+                    let y = win.y() + (win.h() - crate::COMMON_DLG_H) / 2;
+                    let dlg_w = 600;
+                    let dlg_h = 400;
+                    let Some(path) = crate::util::file_chooser_save_file(x, y, dlg_w, dlg_h, "Export Node as JSON", "*.json", None) else {
+                        return;
+                    };
+                    match serde_json::to_string_pretty(&cfg) {
+                        Ok(json_str) => {
+                            if std::fs::write(&path, json_str).is_ok() {
+                                fltk::dialog::message(x, y, &format!("Node exported to: {}", path.display()));
+                            } else {
+                                fltk::dialog::alert(x, y, "Failed to write node file.");
+                            }
+                        }
+                        Err(e) => fltk::dialog::alert(x, y, &format!("Failed to serialize node: {e}")),
+                    }
+                });
+
                 // Show QR Code menu item
                 let win = win_clone.clone();
                 let configs_clone = configs_rc.clone();

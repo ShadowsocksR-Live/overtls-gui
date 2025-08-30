@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let (settings_tx, settings_rx) = std::sync::mpsc::channel();
     let w = win.clone();
     let state_clone = state.clone();
-    menubar.add("&File/Settings", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
+    menubar.add("&Main/Settings", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
         let settings = state_clone.borrow().system_settings.clone().unwrap_or_default();
         settings_dialog::show_settings_dialog(&w, &settings, settings_tx.clone());
     });
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add(
-        "&File/Scan QR Code from screen\t",
+        "&Main/Scan QR Code from screen\t",
         Shortcut::Ctrl | 'r',
         MenuFlag::Normal,
         move |_m| {
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let state_clone = state.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&File/Import Node File\t", Shortcut::Ctrl | 'o', MenuFlag::Normal, move |_m| {
+    menubar.add("&Main/Import Node File\t", Shortcut::Ctrl | 'o', MenuFlag::Normal, move |_m| {
         let dlg_w = 600;
         let dlg_h = 400;
         let x = w.x() + (w.w() - dlg_w) / 2;
@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // let mut table_clone = table.clone();
     let w = win.clone();
     let node_details_receivers_clone = node_details_receivers.clone();
-    menubar.add("&File/New\t", Shortcut::Ctrl | 'n', MenuFlag::MenuDivider, move |_m| {
+    menubar.add("&Main/New\t", Shortcut::Ctrl | 'n', MenuFlag::MenuDivider, move |_m| {
         let (tx, rx) = std::sync::mpsc::channel();
         show_node_details(&w, None, tx);
         node_details_receivers_clone.lock().unwrap().push((None, rx));
@@ -152,7 +152,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let running_handle_run = running_handle.clone();
     let state_clone = state.clone();
     let w = win.clone();
-    menubar.add("&File/Run", Shortcut::None, MenuFlag::Normal, move |_m| {
+    menubar.add("&Main/Run", Shortcut::None, MenuFlag::Normal, move |_m| {
         let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(idx) = *current_node_index_run.borrow() else {
@@ -196,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let running_token_stop = running_token.clone();
     let running_handle_stop = running_handle.clone();
     let w = win.clone();
-    menubar.add("&File/Stop", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
+    menubar.add("&Main/Stop", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
         let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         if let Err(e) = stop_running_node(&running_token_stop, &running_handle_stop) {
@@ -224,16 +224,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         err_info.map(|e| Err(std::io::Error::other(e))).unwrap_or(Ok(()))
     }
 
-    menubar.add("&File/Quit\t", Shortcut::Ctrl | 'q', MenuFlag::Normal, move |_| {
+    menubar.add("&Main/Quit\t", Shortcut::Ctrl | 'q', MenuFlag::Normal, move |_| {
         ::fltk::app::quit();
     });
 
-    // --- Edit menu group: View Details ---
+    // --- Node menu group: View Details ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
     let w = win.clone();
     let node_details_receivers_clone = node_details_receivers.clone();
-    menubar.add("&Edit/View Details", Shortcut::None, MenuFlag::Normal, move |_menu| {
+    menubar.add("&Node/View Details", Shortcut::None, MenuFlag::Normal, move |_menu| {
         let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
@@ -249,11 +249,52 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         node_details_receivers_clone.lock().unwrap().push((Some(selected_row), rx));
     });
 
-    // --- Edit menu group: View QR Code ---
+    // --- Node menu group: Export Node ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
     let w = win.clone();
-    menubar.add("&Edit/Show QR Code", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
+    let state_clone = state.clone();
+    menubar.add("&Node/Export Node", Shortcut::None, MenuFlag::Normal, move |_menu| {
+        let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
+        let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
+        let Some(selected_row) = *current_node_index_clone.borrow() else {
+            dialog::alert(x, y, "No node selected.");
+            return;
+        };
+        let Some(cfg) = remote_nodes_clone.borrow().get(selected_row).cloned() else {
+            dialog::alert(x, y, "Selected node not found.");
+            return;
+        };
+        let origin_path = state_clone
+            .borrow()
+            .current_selection_path
+            .clone()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap()));
+        // export node to JSON file
+        let dlg_w = 600;
+        let dlg_h = 400;
+        let save_path = util::file_chooser_save_file(x, y, dlg_w, dlg_h, "Export Node as JSON", "*.json", origin_path.to_str());
+        let Some(path) = save_path else {
+            return;
+        };
+        match serde_json::to_string_pretty(&cfg) {
+            Ok(json_str) => {
+                if std::fs::write(&path, json_str).is_ok() {
+                    dialog::message(x, y, &format!("Node exported to: {}", path.display()));
+                    state_clone.borrow_mut().set_current_path(path.parent().unwrap_or(&origin_path));
+                } else {
+                    dialog::alert(x, y, "Failed to write node file.");
+                }
+            }
+            Err(e) => dialog::alert(x, y, &format!("Failed to serialize node: {e}")),
+        }
+    });
+
+    // --- Node menu group: View QR Code ---
+    let current_node_index_clone = current_node_index.clone();
+    let remote_nodes_clone = remote_nodes.clone();
+    let w = win.clone();
+    menubar.add("&Node/Show QR Code", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
         let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
@@ -280,12 +321,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
-    // --- Edit menu group: Delete ---
+    // --- Node menu group: Delete ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&Edit/Delete", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
+    menubar.add("&Node/Delete", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
         let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
@@ -312,7 +353,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
     let w = win.clone();
-    menubar.add("&Edit/Copy\t", Shortcut::Ctrl | 'c', MenuFlag::Normal, move |_menu| {
+    menubar.add("&Node/Copy\t", Shortcut::Ctrl | 'c', MenuFlag::Normal, move |_menu| {
         log::trace!("Copy event triggered");
         let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
         let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
@@ -336,7 +377,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes_clone = remote_nodes.clone();
     let mut table_clone = table.clone();
     let mut w = win.clone();
-    menubar.add("&Edit/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
+    menubar.add("&Node/Paste\t", Shortcut::Ctrl | 'v', MenuFlag::Normal, move |_menu| {
         if let Ok(config) = paste_operations::paste() {
             remote_nodes_clone.borrow_mut().push(config);
             refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
