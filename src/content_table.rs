@@ -1,6 +1,4 @@
-use crate::{
-    COMMON_DLG_H, COMMON_DLG_W, LOG_HEIGHT, MENUBAR_HEIGHT, OverTlsNode, OverTlsNodeReceivers, node_details_dialog::show_node_details,
-};
+use crate::{LOG_HEIGHT, MENUBAR_HEIGHT, OverTlsNode, OverTlsNodeReceivers, node_details_dialog::show_node_details};
 use fltk::{
     enums::{Align, Color, Event, FrameType, Shortcut},
     menu::MenuFlag,
@@ -79,28 +77,33 @@ pub fn create_table(
                 });
 
                 // Export Node menu item
-                let win = win_clone.clone();
                 let configs_clone = configs_rc.clone();
                 menu_btn.add("Export Node", Shortcut::None, MenuFlag::Normal, move |_m| {
                     let Some(cfg) = configs_clone.borrow().get(row as usize).cloned() else {
                         return;
                     };
-                    let x = win.x() + (win.w() - crate::COMMON_DLG_W) / 2;
-                    let y = win.y() + (win.h() - crate::COMMON_DLG_H) / 2;
-                    let dlg_w = 600;
-                    let dlg_h = 400;
-                    let Some(path) = crate::util::file_chooser_save_file(x, y, dlg_w, dlg_h, "Export Node as JSON", "*.json", None) else {
+                    let Some(path) = crate::util::file_chooser_save_file("Export Node as JSON", None, "JSON File", &["json"]) else {
                         return;
                     };
                     match serde_json::to_string_pretty(&cfg) {
                         Ok(json_str) => {
                             if std::fs::write(&path, json_str).is_ok() {
-                                fltk::dialog::message(x, y, &format!("Node exported to: {}", path.display()));
+                                log::debug!("Node exported to: {}", path.display());
                             } else {
-                                fltk::dialog::alert(x, y, "Failed to write node file.");
+                                rfd::MessageDialog::new()
+                                    .set_title("Error")
+                                    .set_description("Failed to write node file.")
+                                    .set_level(rfd::MessageLevel::Error)
+                                    .show();
                             }
                         }
-                        Err(e) => fltk::dialog::alert(x, y, &format!("Failed to serialize node: {e}")),
+                        Err(e) => {
+                            rfd::MessageDialog::new()
+                                .set_title("Error")
+                                .set_description(format!("Failed to serialize node: {e}"))
+                                .set_level(rfd::MessageLevel::Error)
+                                .show();
+                        }
                     }
                 });
 
@@ -118,16 +121,17 @@ pub fn create_table(
                             format!("Node QR Code - '{name}'")
                         };
                         if let Err(e) = crate::qr_code_dialog::qr_code_dialog(&win, &title, &ssr_url) {
-                            let x = win.x() + (win.w() - COMMON_DLG_W) / 2;
-                            let y = win.y() + (win.h() - COMMON_DLG_H) / 2;
-                            fltk::dialog::alert(x, y, &format!("Failed to show QR code: {e}"));
+                            rfd::MessageDialog::new()
+                                .set_title("Error")
+                                .set_description(format!("Failed to show QR code: {e}"))
+                                .set_level(rfd::MessageLevel::Error)
+                                .show();
                         }
                     }
                 });
 
                 let configs_clone = configs_rc.clone();
                 let mut table_clone = table.clone();
-                let win = win_clone.clone();
                 let selected_row_clone = selected_row_handle.clone();
                 menu_btn.add("Delete", Shortcut::None, MenuFlag::MenuDivider, move |_| {
                     let title = configs_clone
@@ -135,15 +139,13 @@ pub fn create_table(
                         .get(row as usize)
                         .map(|c| c.remarks.clone().unwrap_or_default())
                         .unwrap_or_default();
-                    let confirm = fltk::dialog::choice2(
-                        win.x() + fltk::app::event_x(),
-                        win.y() + fltk::app::event_y(),
-                        &format!("Are you sure you want to delete node: '{title}'?"),
-                        "Yes",
-                        "No",
-                        "",
-                    );
-                    if confirm == Some(0) {
+                    let confirm = rfd::MessageDialog::new()
+                        .set_title("Confirm Deletion")
+                        .set_description(format!("Are you sure you want to delete node: '{title}'?"))
+                        .set_buttons(rfd::MessageButtons::OkCancel)
+                        .set_level(rfd::MessageLevel::Warning)
+                        .show();
+                    if confirm == rfd::MessageDialogResult::Ok {
                         configs_clone.borrow_mut().remove(row as usize);
                         table_clone.set_rows(configs_clone.borrow().len() as i32);
                         table_clone.set_selection(-1, -1, -1, -1);

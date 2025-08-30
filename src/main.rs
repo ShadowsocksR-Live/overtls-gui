@@ -3,7 +3,6 @@
 
 use crate::{content_table::refresh_table, node_details_dialog::show_node_details};
 use fltk::{
-    dialog,
     enums::{Event, Shortcut},
     menu::{MenuBar, MenuFlag},
     prelude::{DisplayExt, GroupExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
@@ -27,8 +26,6 @@ mod states_manager;
 mod util;
 
 pub(crate) const MENUBAR_HEIGHT: i32 = 30;
-pub(crate) const COMMON_DLG_W: i32 = 400;
-pub(crate) const COMMON_DLG_H: i32 = 100;
 pub(crate) const LOG_HEIGHT: i32 = 240;
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
@@ -83,16 +80,22 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         "&Main/Scan QR Code from screen\t",
         Shortcut::Ctrl | 'r',
         MenuFlag::Normal,
-        move |_m| {
-            let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
-            let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
-            match paste_operations::screenshot_qr_import() {
-                Ok(config) => {
-                    remote_nodes_clone.borrow_mut().push(config);
-                    refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
-                    dialog::message(x, y, "QR Code scanned and imported!");
-                }
-                Err(e) => dialog::alert(x, y, &format!("Failed to import QR Code: {e}")),
+        move |_m| match paste_operations::screenshot_qr_import() {
+            Ok(config) => {
+                remote_nodes_clone.borrow_mut().push(config);
+                refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
+                rfd::MessageDialog::new()
+                    .set_title("Success")
+                    .set_description("QR Code scanned and imported successfully!")
+                    .set_level(rfd::MessageLevel::Info)
+                    .show();
+            }
+            Err(e) => {
+                rfd::MessageDialog::new()
+                    .set_title("Error")
+                    .set_description(format!("Failed to import QR Code: {e}"))
+                    .set_level(rfd::MessageLevel::Error)
+                    .show();
             }
         },
     );
@@ -102,17 +105,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&Main/Import Node File\t", Shortcut::Ctrl | 'o', MenuFlag::Normal, move |_m| {
-        let dlg_w = 600;
-        let dlg_h = 400;
-        let x = w.x() + (w.w() - dlg_w) / 2;
-        let y = w.y() + (w.h() - dlg_h) / 2;
         let origin_path = state_clone
             .borrow()
             .current_selection_path
             .clone()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap()));
         // Show file chooser dialog and import config file
-        let path = util::file_chooser_open_file(x, y, dlg_w, dlg_h, "Select config file", "*.json", origin_path.to_str());
+        let path = util::file_chooser_open_file("Select config file", origin_path.to_str(), "JSON File", &["json"]);
         if let Some(path) = &path {
             match OverTlsNode::from_config_file(path) {
                 Ok(config) => {
@@ -123,7 +122,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                     refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
                 }
                 Err(e) => {
-                    dialog::alert(x, y, &format!("Import failed: {e}"));
+                    rfd::MessageDialog::new()
+                        .set_title("Error")
+                        .set_description(format!("Import failed: {e}"))
+                        .set_level(rfd::MessageLevel::Error)
+                        .show();
                 }
             }
         }
@@ -151,35 +154,52 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let running_token_run = running_token.clone();
     let running_handle_run = running_handle.clone();
     let state_clone = state.clone();
-    let w = win.clone();
     menubar.add("&Main/Run", Shortcut::None, MenuFlag::Normal, move |_m| {
-        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(idx) = *current_node_index_run.borrow() else {
-            dialog::alert(x, y, "Please select a node first.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Please select a node first.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let Some(mut config) = remote_nodes_run.borrow().get(idx).cloned() else {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         // Stop node first if it's running
         if running_token_run.lock().unwrap().is_some() {
-            dialog::alert(x, y, "A node is already running. Please stop it first.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("A node is already running. Please stop it first.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         }
 
         let system_settings = state_clone.borrow().system_settings.clone().unwrap_or_default();
-        let tun2proxy_enable = system_settings.tun2proxy_enable.unwrap_or(false);
+        let tun2proxy_enable = system_settings.tun2proxy_enable.unwrap_or_default();
         if tun2proxy_enable && !run_as::is_elevated() {
-            dialog::alert(x, y, "Requires admin privileges. Please restart the application as administrator.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Requires admin privileges. Please restart the application as administrator.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         }
 
         core::merge_system_settings_to_node_config(&system_settings, &mut config);
 
         if let Err(e) = config.check_correctness(false) {
-            dialog::alert(x, y, &format!("Configuration error: {e}"));
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description(format!("Configuration error: {e}"))
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         }
 
@@ -195,12 +215,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let running_token_stop = running_token.clone();
     let running_handle_stop = running_handle.clone();
-    let w = win.clone();
     menubar.add("&Main/Stop", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
-        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         if let Err(e) = stop_running_node(&running_token_stop, &running_handle_stop) {
-            dialog::alert(x, y, &format!("Failed to stop running node: {e}"));
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description(format!("Failed to stop running node: {e}"))
+                .set_level(rfd::MessageLevel::Error)
+                .show();
         }
     });
 
@@ -234,14 +255,20 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let w = win.clone();
     let node_details_receivers_clone = node_details_receivers.clone();
     menubar.add("&Node/View Details", Shortcut::None, MenuFlag::Normal, move |_menu| {
-        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
-            dialog::alert(x, y, "No node selected.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("No node selected.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let Some(cfg) = remote_nodes_clone.borrow().get(selected_row).cloned() else {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let (tx, rx) = std::sync::mpsc::channel();
@@ -252,17 +279,22 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // --- Node menu group: Export Node ---
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
-    let w = win.clone();
     let state_clone = state.clone();
     menubar.add("&Node/Export Node", Shortcut::None, MenuFlag::Normal, move |_menu| {
-        let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
-            dialog::alert(x, y, "No node selected.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("No node selected.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let Some(cfg) = remote_nodes_clone.borrow().get(selected_row).cloned() else {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let origin_path = state_clone
@@ -271,22 +303,30 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             .clone()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap()));
         // export node to JSON file
-        let dlg_w = 600;
-        let dlg_h = 400;
-        let save_path = util::file_chooser_save_file(x, y, dlg_w, dlg_h, "Export Node as JSON", "*.json", origin_path.to_str());
+        let save_path = util::file_chooser_save_file("Export Node as JSON", origin_path.to_str(), "JSON File", &["json"]);
         let Some(path) = save_path else {
             return;
         };
         match serde_json::to_string_pretty(&cfg) {
             Ok(json_str) => {
                 if std::fs::write(&path, json_str).is_ok() {
-                    dialog::message(x, y, &format!("Node exported to: {}", path.display()));
+                    log::debug!("Node exported to: {}", path.display());
                     state_clone.borrow_mut().set_current_path(path.parent().unwrap_or(&origin_path));
                 } else {
-                    dialog::alert(x, y, "Failed to write node file.");
+                    rfd::MessageDialog::new()
+                        .set_title("Error")
+                        .set_description("Failed to write node file.")
+                        .set_level(rfd::MessageLevel::Error)
+                        .show();
                 }
             }
-            Err(e) => dialog::alert(x, y, &format!("Failed to serialize node: {e}")),
+            Err(e) => {
+                rfd::MessageDialog::new()
+                    .set_title("Error")
+                    .set_description(format!("Failed to serialize node: {e}"))
+                    .set_level(rfd::MessageLevel::Error)
+                    .show();
+            }
         }
     });
 
@@ -295,14 +335,20 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let remote_nodes_clone = remote_nodes.clone();
     let w = win.clone();
     menubar.add("&Node/Show QR Code", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
-        let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
-            dialog::alert(x, y, "No node selected.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("No node selected.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let Some(cfg) = remote_nodes_clone.borrow().get(selected_row).cloned() else {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         // Generate the SSR URL for the node and display it as a QR code
@@ -314,10 +360,18 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                 format!("Node QR Code - '{name}'")
             };
             if let Err(e) = qr_code_dialog::qr_code_dialog(&w, &title, &ssr_url) {
-                dialog::alert(x, y, &format!("Failed to show QR Code: {e}"));
+                rfd::MessageDialog::new()
+                    .set_title("Error")
+                    .set_description(format!("Failed to show QR Code: {e}"))
+                    .set_level(rfd::MessageLevel::Error)
+                    .show();
             }
         } else {
-            dialog::alert(x, y, "Failed to generate SSR URL for QR Code.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Failed to generate URL for QR Code.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
         }
     });
 
@@ -327,14 +381,20 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     let mut table_clone = table.clone();
     let mut w = win.clone();
     menubar.add("&Node/Delete", Shortcut::None, MenuFlag::MenuDivider, move |_menu| {
-        let x = w.x() + (w.w() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.h() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
-            dialog::alert(x, y, "No node selected.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("No node selected.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         if selected_row > remote_nodes_clone.borrow().len() {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         }
         let title = remote_nodes_clone
@@ -342,8 +402,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             .get(selected_row)
             .map(|c| c.remarks.clone().unwrap_or_default())
             .unwrap_or_default();
-        let confirm = dialog::choice2(x, y, &format!("Are you sure you want to delete node: '{title}'?"), "Yes", "No", "");
-        if confirm == Some(0) {
+        let confirm = rfd::MessageDialog::new()
+            .set_title("Confirm Deletion")
+            .set_description(format!("Are you sure you want to delete node: '{title}'?"))
+            .set_buttons(rfd::MessageButtons::OkCancel)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if confirm == rfd::MessageDialogResult::Ok {
             remote_nodes_clone.borrow_mut().remove(selected_row);
             *current_node_index_clone.borrow_mut() = None;
             refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
@@ -352,25 +417,37 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     let current_node_index_clone = current_node_index.clone();
     let remote_nodes_clone = remote_nodes.clone();
-    let w = win.clone();
     menubar.add("&Node/Copy\t", Shortcut::Ctrl | 'c', MenuFlag::Normal, move |_menu| {
-        log::trace!("Copy event triggered");
-        let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
-        let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
         let Some(selected_row) = *current_node_index_clone.borrow() else {
-            dialog::alert(x, y, "No node selected.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("No node selected.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         let Some(node) = remote_nodes_clone.borrow().get(selected_row).cloned() else {
-            dialog::alert(x, y, "Selected node not found.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Selected node not found.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         };
         if let Ok(text) = &node.generate_ssr_url() {
             ::fltk::app::copy(text);
             let name = node.remarks.clone().unwrap_or_default();
-            dialog::message(x, y, &format!("Node '{name}'s URL copied to clipboard"));
+            rfd::MessageDialog::new()
+                .set_title("Copied")
+                .set_description(format!("Node '{name}'s URL copied to clipboard"))
+                .set_level(rfd::MessageLevel::Info)
+                .show();
         } else {
-            dialog::alert(x, y, "Failed to generate URL for the selected node.");
+            rfd::MessageDialog::new()
+                .set_title("Error")
+                .set_description("Failed to generate URL for the selected node.")
+                .set_level(rfd::MessageLevel::Error)
+                .show();
         }
     });
 
@@ -382,17 +459,24 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             remote_nodes_clone.borrow_mut().push(config);
             refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
         } else {
-            let x = w.x() + (w.width() - COMMON_DLG_W) / 2;
-            let y = w.y() + (w.height() - COMMON_DLG_H) / 2;
-            dialog::alert(x, y, "No valid configuration found in clipboard.");
+            rfd::MessageDialog::new()
+                .set_title("Paste")
+                .set_description("No valid configuration found in clipboard.")
+                .set_level(rfd::MessageLevel::Warning)
+                .show();
         }
     });
 
-    let win_clone = win.clone();
     menubar.add("&Help/About", Shortcut::None, MenuFlag::Normal, move |_| {
-        let x = win_clone.x() + (win_clone.width() - COMMON_DLG_W) / 2;
-        let y = win_clone.y() + (win_clone.height() - COMMON_DLG_H) / 2;
-        dialog::message(x, y, "This is a demo menu!");
+        let v = env!("CARGO_PKG_VERSION");
+        use chrono::Datelike;
+        let year = chrono::Utc::now().year();
+        let d = format!("OverTLS GUI Client Manager\nVersion {v}\n\nA simple GUI manager for OverTLS clients.\n\n(c) {year} ssrlive");
+        rfd::MessageDialog::new()
+            .set_title("About")
+            .set_description(d)
+            .set_level(rfd::MessageLevel::Info)
+            .show();
     });
 
     win.end();
@@ -526,9 +610,11 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                     log::debug!("Restarted as admin with status code {status}, exiting current instance.");
                     ::fltk::app::quit();
                 } else {
-                    let x = win.x() + (win.width() - COMMON_DLG_W) / 2;
-                    let y = win.y() + (win.height() - COMMON_DLG_H) / 2;
-                    dialog::alert(x, y, "Failed to restart as admin.");
+                    rfd::MessageDialog::new()
+                        .set_title("Error")
+                        .set_description("Failed to restart as admin.")
+                        .set_level(rfd::MessageLevel::Error)
+                        .show();
                 }
             }
             log::info!("Settings updated via channel");
