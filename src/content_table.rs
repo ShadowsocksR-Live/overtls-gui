@@ -27,7 +27,67 @@ pub fn create_table(
     // To highlight the selected row
     let selected_row_handle = selected_row.clone();
     let win_clone = win.clone();
+    let mut dnd = false;
+    let mut released = false;
     table.handle(move |table, ev| {
+        // Handle drag-and-drop events
+        match ev {
+            Event::DndEnter => {
+                dnd = true;
+                return true;
+            }
+            Event::DndDrag => return true,
+            Event::DndRelease => {
+                released = true;
+                return true;
+            }
+            Event::Paste => {
+                if dnd && released {
+                    let event_text = fltk::app::event_text();
+                    let nodes_clone = configs_rc.clone();
+                    let mut table = table.clone();
+
+                    // we use a timeout to avoid pasting the path into the buffer
+                    fltk::app::add_timeout3(0.0, {
+                        move |_| {
+                            let mut successful = false;
+                            // Process each line as a potential file path
+                            for line in event_text.lines() {
+                                let path: std::path::PathBuf = line.trim().replace("file://", "").into();
+                                match crate::paste_operations::process_inputed_file(&path) {
+                                    Ok(node) => {
+                                        nodes_clone.borrow_mut().push(node);
+                                        successful = true;
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed to load file: {e}");
+                                    }
+                                }
+                            }
+
+                            // Update table if any files were loaded
+                            if successful {
+                                table.set_rows(nodes_clone.borrow().len() as i32);
+                                table.redraw();
+                            }
+                        }
+                    });
+
+                    dnd = false;
+                    released = false;
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+            Event::DndLeave => {
+                dnd = false;
+                released = false;
+                return true;
+            }
+            _ => {}
+        }
+
         // Only respond to left mouse button
         if ev == Event::Released && fltk::app::event_button() == fltk::app::MouseButton::Left as i32 {
             let table_context = table.callback_context();

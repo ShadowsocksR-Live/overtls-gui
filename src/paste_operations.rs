@@ -40,17 +40,18 @@ pub fn files_drag_n_drop() -> Vec<OverTlsNode> {
     configs
 }
 
-fn process_inputed_file(path: &str) -> std::io::Result<OverTlsNode> {
+pub fn process_inputed_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<OverTlsNode> {
     use std::io::{Error, ErrorKind::InvalidData};
+    let path = path.as_ref();
     // 1. try to parse as config file
     if let Ok(config) = OverTlsNode::from_config_file(path) {
         return Ok(config);
     }
     // 2. try to parse as image
-    let img = image::open(path).map_err(|e| Error::new(InvalidData, format!("Failed to load file '{path}' as image: {e}")))?;
+    let img = image::open(path).map_err(|e| Error::new(InvalidData, format!("Failed to load file '{path:?}' as image: {e}")))?;
 
     // 3. try to parse QR code
-    let qr_str = qr_decode(&img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code from image '{path}': {e}")))?;
+    let qr_str = qr_decode(&img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code from image '{path:?}': {e}")))?;
 
     log::trace!("QR code detected: {qr_str}");
     // 4. try to convert QR code string to config
