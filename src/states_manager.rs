@@ -47,6 +47,18 @@ pub struct SystemSettings {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tun2proxy: Option<tun2proxy::Args>,
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub log_level: Option<String>, // global log level: "Error", "Warn", "Info", "Debug", "Trace"
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub rustls_log_level: Option<String>, // Rustls log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hyper_log_level: Option<String>, // Hyper log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tokio_log_level: Option<String>, // Tokio log level
 }
 
 impl Default for SystemSettings {
@@ -60,6 +72,10 @@ impl Default for SystemSettings {
             cache_dns: false,
             tun2proxy_enable: Some(true),
             tun2proxy: None,
+            log_level: Some("Debug".to_string()),
+            rustls_log_level: Some("Debug".to_string()),
+            hyper_log_level: Some("Debug".to_string()),
+            tokio_log_level: Some("Debug".to_string()),
         }
     }
 }
@@ -119,4 +135,54 @@ pub fn save_app_state(state: &AppState) -> std::io::Result<()> {
     let config_path = get_config_path();
     let contents = serde_json::to_string_pretty(state).map_err(|e| std::io::Error::other(format!("Failed to serialize state: {e}")))?;
     std::fs::write(config_path, contents)
+}
+
+impl SystemSettings {
+    /// Creates a new Logger from SystemSettings
+    pub fn create_logger(&self, sender: crate::logger::LogSender) -> crate::logger::Logger {
+        /// Convert string to LevelFilter
+        pub fn string_to_level_filter(s: &str) -> Result<log::LevelFilter, &'static str> {
+            match s.to_lowercase().as_str() {
+                "off" => Ok(log::LevelFilter::Off),
+                "error" => Ok(log::LevelFilter::Error),
+                "warn" => Ok(log::LevelFilter::Warn),
+                "info" => Ok(log::LevelFilter::Info),
+                "debug" => Ok(log::LevelFilter::Debug),
+                "trace" => Ok(log::LevelFilter::Trace),
+                _ => Err("Invalid log level"),
+            }
+        }
+
+        let mut module_filters = std::collections::HashMap::new();
+
+        if let Some(rustls_level) = &self.rustls_log_level
+            && let Ok(level) = string_to_level_filter(rustls_level)
+        {
+            module_filters.insert("rustls".to_string(), level);
+        }
+
+        if let Some(hyper_level) = &self.hyper_log_level
+            && let Ok(level) = string_to_level_filter(hyper_level)
+        {
+            module_filters.insert("hyper".to_string(), level);
+        }
+
+        if let Some(tokio_level) = &self.tokio_log_level
+            && let Ok(level) = string_to_level_filter(tokio_level)
+        {
+            module_filters.insert("tokio".to_string(), level);
+        }
+
+        let default_level = if let Some(global_level) = &self.log_level {
+            string_to_level_filter(global_level).unwrap_or(log::LevelFilter::Debug)
+        } else {
+            log::LevelFilter::Debug
+        };
+
+        crate::logger::Logger {
+            sender,
+            module_filters,
+            default_level,
+        }
+    }
 }

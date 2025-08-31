@@ -123,6 +123,37 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
 
     tab_tun2proxy.end();
 
+    // Logging Tab
+    let tab_logging = fltk::group::Group::new(0, 25, dialog_w, dialog_h - 25, "Logging");
+    let mut flex_logging = Flex::default_fill().column();
+    flex_logging.fixed(&tab_logging, dialog_h - 25);
+
+    fn log_level_options() -> String {
+        log::LevelFilter::iter().map(|it| format!("{it:?}")).collect::<Vec<_>>().join("|")
+    }
+
+    fn log_level_index(level: &str) -> i32 {
+        log::LevelFilter::iter()
+            .enumerate()
+            .find(|(_, filter)| filter.as_str().eq_ignore_ascii_case(level))
+            .map(|(index, _)| index as i32)
+            .unwrap_or(3)
+    }
+
+    fn log_level_by_index(index: i32) -> String {
+        log::LevelFilter::iter()
+            .nth(index as usize)
+            .map(|filter| filter.as_str().to_string())
+            .unwrap_or_else(|| "Info".to_string())
+    }
+
+    let mut log_level = add_row_choice!("Global Log Level", log_level, flex_logging, &log_level_options());
+    let mut rustls_log_level = add_row_choice!("Rustls Log Level", rustls_log_level, flex_logging, &log_level_options());
+    let mut hyper_log_level = add_row_choice!("Hyper Log Level", hyper_log_level, flex_logging, &log_level_options());
+    let mut tokio_log_level = add_row_choice!("Tokio Log Level", tokio_log_level, flex_logging, &log_level_options());
+
+    tab_logging.end();
+
     tabs.end();
 
     // ============================= end of tab layouts =============================
@@ -143,6 +174,12 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
     max_sessions.set_value(tun2proxy_cfg.max_sessions as f64);
     remote_dns_address.set_value(tun2proxy_cfg.dns_addr.to_string().as_str());
     dns_strategy.set_value(tun2proxy_dns_strategy_index(tun2proxy_cfg.dns) as i32);
+
+    // Logging default values
+    log_level.set_value(log_level_index(system_settings.log_level.as_deref().unwrap_or("Debug")));
+    rustls_log_level.set_value(log_level_index(system_settings.rustls_log_level.as_deref().unwrap_or("Info")));
+    hyper_log_level.set_value(log_level_index(system_settings.hyper_log_level.as_deref().unwrap_or("Info")));
+    tokio_log_level.set_value(log_level_index(system_settings.tokio_log_level.as_deref().unwrap_or("Info")));
 
     let mut submit_btn = Button::new(dialog_w / 2 - 60, dialog_h - 45, 120, 35, "Submit");
     dlg.end();
@@ -173,6 +210,11 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
         let remote_dns_address_val = remote_dns_address.value();
         let dns_strategy_val = dns_strategy.value();
 
+        let log_level_val = Some(log_level_by_index(log_level.value()));
+        let rustls_log_level_val = Some(log_level_by_index(rustls_log_level.value()));
+        let hyper_log_level_val = Some(log_level_by_index(hyper_log_level.value()));
+        let tokio_log_level_val = Some(log_level_by_index(tokio_log_level.value()));
+
         let tun2proxy_cfg = Some(tun2proxy::Args {
             exit_on_fatal_error: exit_on_fatal_error_val,
             max_sessions: max_sessions_val,
@@ -190,6 +232,12 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
             cache_dns: cache_dns_val,
             tun2proxy_enable: Some(tun2proxy_enable_val),
             tun2proxy: tun2proxy_cfg,
+
+            // Logging
+            log_level: log_level_val,
+            rustls_log_level: rustls_log_level_val,
+            hyper_log_level: hyper_log_level_val,
+            tokio_log_level: tokio_log_level_val,
         };
         let _ = tx.send(new_settings);
         dlg_cb.hide();

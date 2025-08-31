@@ -33,13 +33,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     let (tx, rx) = std::sync::mpsc::channel();
-    if let Err(e) = log::set_boxed_logger(Box::new(logger::Logger::new(tx))) {
-        eprintln!("Failed to set logger: {e}");
-    }
-    log::set_max_level(log::LevelFilter::Debug);
 
     let state = states_manager::load_app_state();
-    let tun2proxy_enable = state.system_settings.clone().unwrap_or_default().tun2proxy_enable.unwrap_or(false);
+    let system_settings = state.system_settings.clone().unwrap_or_default();
+
+    if let Err(e) = log::set_boxed_logger(Box::new(system_settings.create_logger(tx))) {
+        eprintln!("Failed to set logger: {e}");
+    }
+    // Note: No longer use log::set_max_level, as it is now controlled by the Logger internally
+    log::set_max_level(log::LevelFilter::Trace);
+
+    let tun2proxy_enable = system_settings.tun2proxy_enable.unwrap_or(false);
     let state = Rc::new(RefCell::new(state));
 
     if tun2proxy_enable && !run_as::is_elevated() {
@@ -617,7 +621,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
                         .show();
                 }
             }
-            log::info!("Settings updated via channel");
+            log::info!("Settings updated. Log filter changes will take effect after restart.");
         }
 
         // Handle results from node details dialogs

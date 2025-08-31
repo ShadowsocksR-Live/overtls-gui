@@ -28,29 +28,36 @@ pub fn create_table(
     let selected_row_handle = selected_row.clone();
     let win_clone = win.clone();
     table.handle(move |table, ev| {
-        if ev == Event::Released {
+        // Only respond to left mouse button
+        if ev == Event::Released && fltk::app::event_button() == fltk::app::MouseButton::Left as i32 {
             let table_context = table.callback_context();
             let row = table.callback_row();
-            // Only respond to left mouse button
-            if fltk::app::event_button() == fltk::app::MouseButton::Left as i32 {
-                log::debug!("Table context: {:?}, row: {}", table_context, row);
-                if (table_context == TableContext::Cell || table_context == TableContext::RowHeader) && row >= 0 {
-                    let cols = table.cols();
-                    // First, clear all selections
-                    table.set_selection(-1, -1, -1, -1);
-                    // Then select the current row
-                    *selected_row_handle.borrow_mut() = Some(row as usize);
-                    table.set_selection(row, 0, row, cols - 1);
-                    table.redraw();
-                    return true;
-                }
-                if table_context == TableContext::ColHeader || table_context == TableContext::None || table_context == TableContext::Table {
-                    // Clear selection when clicking on column header or table empty area
-                    table.set_selection(-1, -1, -1, -1);
-                    *selected_row_handle.borrow_mut() = None;
-                    table.redraw();
-                    return true;
-                }
+            #[cfg(debug_assertions)]
+            match row % 5 {
+                0 => log::error!("Table context: {table_context:?}, row: {row}"),
+                1 => log::warn!("Table context: {table_context:?}, row: {row}"),
+                2 => log::info!("Table context: {table_context:?}, row: {row}"),
+                3 => log::debug!("Table context: {table_context:?}, row: {row}"),
+                4 => log::trace!("Table context: {table_context:?}, row: {row}"),
+                _ => unreachable!(),
+            }
+
+            if (table_context == TableContext::Cell || table_context == TableContext::RowHeader) && row >= 0 {
+                let cols = table.cols();
+                // First, clear all selections
+                table.set_selection(-1, -1, -1, -1);
+                // Then select the current row
+                *selected_row_handle.borrow_mut() = Some(row as usize);
+                table.set_selection(row, 0, row, cols - 1);
+                table.redraw();
+                return true;
+            }
+            if table_context == TableContext::ColHeader || table_context == TableContext::None || table_context == TableContext::Table {
+                // Clear selection when clicking on column header or table empty area
+                table.set_selection(-1, -1, -1, -1);
+                *selected_row_handle.borrow_mut() = None;
+                table.redraw();
+                return true;
             }
         }
         // Right-click context menu
