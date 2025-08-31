@@ -149,8 +149,11 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
 
     let mut log_level = add_row_choice!("Global Log Level", log_level, flex_logging, &log_level_options());
     let mut rustls_log_level = add_row_choice!("Rustls Log Level", rustls_log_level, flex_logging, &log_level_options());
-    let mut hyper_log_level = add_row_choice!("Hyper Log Level", hyper_log_level, flex_logging, &log_level_options());
-    let mut tokio_log_level = add_row_choice!("Tokio Log Level", tokio_log_level, flex_logging, &log_level_options());
+    let mut tokio_tungstenite = add_row_choice!("Tokio_tungstenite Log Level", tokio_tungstenite, flex_logging, &log_level_options());
+    let mut tungstenite_log_level = add_row_choice!("Tungstenite Log Level", tungstenite_log_level, flex_logging, &log_level_options());
+    let mut ipstack_log_level = add_row_choice!("Ipstack Log Level", ipstack_log_level, flex_logging, &log_level_options());
+    let mut overtls_log_level = add_row_choice!("OverTls Log Level", overtls_log_level, flex_logging, &log_level_options());
+    let mut tun2proxy_log_level = add_row_choice!("Tun2proxy Log Level", tun2proxy_log_level, flex_logging, &log_level_options());
 
     tab_logging.end();
 
@@ -178,8 +181,13 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
     // Logging default values
     log_level.set_value(log_level_index(system_settings.log_level.as_deref().unwrap_or("Debug")));
     rustls_log_level.set_value(log_level_index(system_settings.rustls_log_level.as_deref().unwrap_or("Info")));
-    hyper_log_level.set_value(log_level_index(system_settings.hyper_log_level.as_deref().unwrap_or("Info")));
-    tokio_log_level.set_value(log_level_index(system_settings.tokio_log_level.as_deref().unwrap_or("Info")));
+    tokio_tungstenite.set_value(log_level_index(
+        system_settings.tokio_tungstenite_log_level.as_deref().unwrap_or("Info"),
+    ));
+    tungstenite_log_level.set_value(log_level_index(system_settings.tungstenite_log_level.as_deref().unwrap_or("Info")));
+    ipstack_log_level.set_value(log_level_index(system_settings.ipstack_log_level.as_deref().unwrap_or("Info")));
+    overtls_log_level.set_value(log_level_index(system_settings.overtls_log_level.as_deref().unwrap_or("Info")));
+    tun2proxy_log_level.set_value(log_level_index(system_settings.tun2proxy_log_level.as_deref().unwrap_or("Info")));
 
     let mut submit_btn = Button::new(dialog_w / 2 - 60, dialog_h - 45, 120, 35, "Submit");
     dlg.end();
@@ -204,7 +212,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
 
         // Tun2proxy Tab values
         let tun2proxy_enable_val = tun2proxy_enable.value();
-        dbg!(tun2proxy_enable_val);
+        // dbg!(tun2proxy_enable_val);
         let exit_on_fatal_error_val = exit_on_fatal_error.value();
         let max_sessions_val = max_sessions.value() as usize;
         let remote_dns_address_val = remote_dns_address.value();
@@ -212,8 +220,11 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
 
         let log_level_val = Some(log_level_by_index(log_level.value()));
         let rustls_log_level_val = Some(log_level_by_index(rustls_log_level.value()));
-        let hyper_log_level_val = Some(log_level_by_index(hyper_log_level.value()));
-        let tokio_log_level_val = Some(log_level_by_index(tokio_log_level.value()));
+        let tokio_tungstenite_log_level_val = Some(log_level_by_index(tokio_tungstenite.value()));
+        let tungstenite_log_level_val = Some(log_level_by_index(tungstenite_log_level.value()));
+        let ipstack_log_level_val = Some(log_level_by_index(ipstack_log_level.value()));
+        let overtls_log_level_val = Some(log_level_by_index(overtls_log_level.value()));
+        let tun2proxy_log_level_val = Some(log_level_by_index(tun2proxy_log_level.value()));
 
         let tun2proxy_cfg = Some(tun2proxy::Args {
             exit_on_fatal_error: exit_on_fatal_error_val,
@@ -236,8 +247,11 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
             // Logging
             log_level: log_level_val,
             rustls_log_level: rustls_log_level_val,
-            hyper_log_level: hyper_log_level_val,
-            tokio_log_level: tokio_log_level_val,
+            tokio_tungstenite_log_level: tokio_tungstenite_log_level_val,
+            tungstenite_log_level: tungstenite_log_level_val,
+            ipstack_log_level: ipstack_log_level_val,
+            overtls_log_level: overtls_log_level_val,
+            tun2proxy_log_level: tun2proxy_log_level_val,
         };
         let _ = tx.send(new_settings);
         dlg_cb.hide();

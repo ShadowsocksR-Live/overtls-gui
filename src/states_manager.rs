@@ -55,10 +55,19 @@ pub struct SystemSettings {
     pub rustls_log_level: Option<String>, // Rustls log level
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub hyper_log_level: Option<String>, // Hyper log level
+    pub tokio_tungstenite_log_level: Option<String>, // tokio_tungstenite log level
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub tokio_log_level: Option<String>, // Tokio log level
+    pub tungstenite_log_level: Option<String>, // tungstenite log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ipstack_log_level: Option<String>, // ipstack log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub overtls_log_level: Option<String>, // overtls log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tun2proxy_log_level: Option<String>, // tun2proxy log level
 }
 
 impl Default for SystemSettings {
@@ -74,8 +83,11 @@ impl Default for SystemSettings {
             tun2proxy: None,
             log_level: Some("Debug".to_string()),
             rustls_log_level: Some("Debug".to_string()),
-            hyper_log_level: Some("Debug".to_string()),
-            tokio_log_level: Some("Debug".to_string()),
+            tokio_tungstenite_log_level: Some("Debug".to_string()),
+            tungstenite_log_level: Some("Debug".to_string()),
+            ipstack_log_level: Some("Debug".to_string()),
+            overtls_log_level: Some("Debug".to_string()),
+            tun2proxy_log_level: Some("Debug".to_string()),
         }
     }
 }
@@ -161,16 +173,34 @@ impl SystemSettings {
             module_filters.insert("rustls".to_string(), level);
         }
 
-        if let Some(hyper_level) = &self.hyper_log_level
-            && let Ok(level) = string_to_level_filter(hyper_level)
+        if let Some(tokio_tungstenite_level) = &self.tokio_tungstenite_log_level
+            && let Ok(level) = string_to_level_filter(tokio_tungstenite_level)
         {
-            module_filters.insert("hyper".to_string(), level);
+            module_filters.insert("tokio_tungstenite".to_string(), level);
         }
 
-        if let Some(tokio_level) = &self.tokio_log_level
-            && let Ok(level) = string_to_level_filter(tokio_level)
+        if let Some(tungstenite_level) = &self.tungstenite_log_level
+            && let Ok(level) = string_to_level_filter(tungstenite_level)
         {
-            module_filters.insert("tokio".to_string(), level);
+            module_filters.insert("tungstenite".to_string(), level);
+        }
+
+        if let Some(ipstack_level) = &self.ipstack_log_level
+            && let Ok(level) = string_to_level_filter(ipstack_level)
+        {
+            module_filters.insert("ipstack".to_string(), level);
+        }
+
+        if let Some(overtls_log_level) = &self.overtls_log_level
+            && let Ok(level) = string_to_level_filter(overtls_log_level)
+        {
+            module_filters.insert("overtls".to_string(), level);
+        }
+
+        if let Some(tun2proxy_log_level) = &self.tun2proxy_log_level
+            && let Ok(level) = string_to_level_filter(tun2proxy_log_level)
+        {
+            module_filters.insert("tun2proxy".to_string(), level);
         }
 
         let default_level = if let Some(global_level) = &self.log_level {
