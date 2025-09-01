@@ -53,6 +53,7 @@ pub fn create_table(
                             let mut successful = false;
                             // Process each line as a potential file path
                             for line in event_text.lines() {
+                                log::debug!("Pasting file: {line}");
                                 let path: std::path::PathBuf = line.trim().replace("file://", "").into();
                                 match crate::paste_operations::process_inputed_file(&path) {
                                     Ok(node) => {
@@ -273,7 +274,8 @@ pub fn create_table(
                 let configs = configs_for_draw.borrow();
                 let text = configs.get(row as usize).and_then(|cfg| cfg.remarks.as_deref()).unwrap_or("");
                 let is_selected = selected_row_draw.borrow().is_some_and(|sel| sel as i32 == row);
-                let display_text = format!("{}{text}", if is_selected { "✔ " } else { "     " });
+                let check = if cfg!(target_os = "linux") { "✔  " } else { "✔ " };
+                let display_text = format!("{}{text}", if is_selected { check } else { "     " });
                 fltk::draw::draw_text2(&display_text, x, y, w, h, Align::Left);
             }
             TableContext::Cell => {

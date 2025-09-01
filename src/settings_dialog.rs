@@ -34,7 +34,7 @@ macro_rules! add_row_input {
         let mut lbl = Frame::default().with_label($label);
         lbl.set_align(Align::Right | Align::Inside);
         let $input = Input::default();
-        row.fixed(&lbl, 200);
+        row.fixed(&lbl, 210);
         row.fixed(&$input, 360);
         row.end();
         $flex.fixed(&row, 30);
@@ -47,7 +47,7 @@ macro_rules! add_row_check {
         let mut lbl = Frame::default().with_label($label);
         lbl.set_align(Align::Right | Align::Inside);
         let $check = CheckButton::default();
-        row.fixed(&lbl, 200);
+        row.fixed(&lbl, 210);
         row.fixed(&$check, 360);
         row.end();
         $flex.fixed(&row, 30);
@@ -62,7 +62,7 @@ macro_rules! add_row_choice {
         let mut $choice = fltk::menu::Choice::default();
         $choice.add_choice($options);
         $choice.set_value(0);
-        row.fixed(&lbl, 200);
+        row.fixed(&lbl, 210);
         row.fixed(&$choice, 360);
         row.end();
         $flex.fixed(&row, 30);
@@ -78,7 +78,7 @@ macro_rules! add_row_spin {
         $spin.set_minimum($min);
         $spin.set_maximum($max);
         $spin.set_step($step);
-        row.fixed(&lbl, 200);
+        row.fixed(&lbl, 210);
         row.fixed(&$spin, 360);
         row.end();
         $flex.fixed(&row, 30);

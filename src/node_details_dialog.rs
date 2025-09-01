@@ -16,7 +16,7 @@ macro_rules! add_row_input {
         let mut lbl = Frame::default().with_label($label);
         lbl.set_align(Align::Right | Align::Inside);
         let $input = Input::default();
-        row.fixed(&lbl, 120);
+        row.fixed(&lbl, 126);
         row.fixed(&$input, 360);
         row.end();
         $flex.fixed(&row, 30);
@@ -29,7 +29,7 @@ macro_rules! add_row_check {
         let mut lbl = Frame::default().with_label($label);
         lbl.set_align(Align::Right | Align::Inside);
         let $check = CheckButton::default();
-        row.fixed(&lbl, 120);
+        row.fixed(&lbl, 126);
         row.fixed(&$check, 360);
         row.end();
         $flex.fixed(&row, 30);

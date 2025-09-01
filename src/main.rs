@@ -14,6 +14,7 @@ use std::{cell::RefCell, sync::mpsc::Receiver};
 pub(crate) use overtls::Config as OverTlsNode;
 
 pub(crate) type OverTlsNodeReceivers = std::sync::Arc<std::sync::Mutex<Vec<(Option<usize>, Receiver<Option<OverTlsNode>>)>>>;
+pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 mod content_table;
 mod core;
@@ -28,9 +29,24 @@ mod util;
 pub(crate) const MENUBAR_HEIGHT: i32 = 30;
 pub(crate) const LOG_HEIGHT: i32 = 240;
 
-fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+#[tokio::main]
+async fn main() -> Result<(), BoxError> {
     // #[cfg(debug_assertions)]
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+
+    // Check for root privileges on Linux
+    #[cfg(target_os = "linux")]
+    if !run_as::is_elevated() {
+        let program_name = std::env::args().next().unwrap_or_else(|| "overtls-gui".to_string());
+        let info = format!("This application requires root privileges to run on Linux.\n\nPlease run with: \nsudo {program_name}\n\n");
+        eprint!("{info}");
+        rfd::MessageDialog::new()
+            .set_title("Error")
+            .set_description(info)
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+        std::process::exit(1);
+    }
 
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -515,27 +531,49 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         }
     });
 
-    let icon = tray_icon::Icon::from_rgba(
-        vec![
-            255, 0, 0, 255, // Red pixel
-            0, 255, 0, 255, // Green pixel
-            0, 0, 255, 255, // Blue pixel
-            255, 255, 0, 255, // Yellow pixel
-        ],
-        2,
-        2,
-    )?;
+    let tray_icon_closur = || -> Result<(tray_icon::TrayIcon, tray_icon::menu::MenuItem, tray_icon::menu::MenuItem), BoxError> {
+        // TODO: File path must be changed in production
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icon.png");
+        let icon = util::load_icon(path)?;
 
-    let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
-    let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
+        let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
+        let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
 
-    let tray_menu = tray_icon::menu::Menu::with_items(&[&show_item, &quit_item])?;
+        let tray_menu = tray_icon::menu::Menu::with_items(&[&show_item, &quit_item])?;
 
-    let _tray_icon = tray_icon::TrayIconBuilder::new()
-        .with_menu(Box::new(tray_menu))
-        .with_tooltip("Just a demo tray icon")
-        .with_icon(icon)
-        .build()?;
+        let tray_icon = tray_icon::TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu))
+            .with_tooltip("OverTLS GUI - Click to show/hide window")
+            .with_icon(icon)
+            .build()?;
+        Ok((tray_icon, show_item, quit_item))
+    };
+
+    #[cfg(target_os = "linux")]
+    let (tray_icon_tx, tray_icon_rx) = std::sync::mpsc::channel();
+
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(move || {
+        gtk::init()?;
+        let (_tray_icon, show_item, quit_item) = tray_icon_closur()?;
+        loop {
+            while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                if event.id == show_item.id() {
+                    tray_icon_tx.send("show").unwrap();
+                } else if event.id == quit_item.id() {
+                    tray_icon_tx.send("quit").unwrap();
+                }
+            }
+            gtk::main_iteration();
+        }
+        // gtk::main();
+
+        #[allow(unreachable_code)]
+        Ok::<(), BoxError>(())
+    });
+
+    #[cfg(not(target_os = "linux"))]
+    let (_tray_icon, show_item, quit_item) = tray_icon_closur()?;
 
     win.show();
 
@@ -552,7 +590,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     // Define style table: A=Red, B=Yellow, C=Green, D=Gray, E=Blue
     let style_table = [
         StyleTableEntry {
-            color: Color::Red,
+            color: Color::from_rgb(255, 0, 0),
             font: Font::Courier,
             size: 12,
         }, // A
@@ -567,12 +605,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
             size: 12,
         }, // C
         StyleTableEntry {
-            color: Color::Light1,
+            color: Color::White,
             font: Font::Courier,
             size: 12,
         }, // D
         StyleTableEntry {
-            color: Color::Blue,
+            color: Color::Light1,
             font: Font::Courier,
             size: 12,
         }, // E
@@ -596,12 +634,23 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
 
     while ::fltk::app::wait() {
         // Handle tray menu events
+        #[cfg(not(target_os = "linux"))]
         while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
             if event.id == show_item.id() {
                 win.show();
             } else if event.id == quit_item.id() {
                 ::fltk::app::quit();
                 break;
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        while let Ok(cmd) = tray_icon_rx.try_recv() {
+            log::debug!("Tray command received: {cmd}");
+            match cmd {
+                "show" => win.show(),
+                "quit" => ::fltk::app::quit(),
+                _ => (),
             }
         }
 

@@ -48,10 +48,10 @@ pub fn process_inputed_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Resu
         return Ok(config);
     }
     // 2. try to parse as image
-    let img = image::open(path).map_err(|e| Error::new(InvalidData, format!("Failed to load file '{path:?}' as image: {e}")))?;
+    let img = image::open(path).map_err(|e| Error::new(InvalidData, format!("Failed to load file {path:?} as image: {e}")))?;
 
     // 3. try to parse QR code
-    let qr_str = qr_decode(&img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code from image '{path:?}': {e}")))?;
+    let qr_str = qr_decode(&img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code from image {path:?}: {e}")))?;
 
     log::trace!("QR code detected: {qr_str}");
     // 4. try to convert QR code string to config

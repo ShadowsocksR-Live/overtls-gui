@@ -40,3 +40,16 @@ pub fn file_chooser_save_file(title: &str, default_path: Option<&str>, filter: &
         .add_filter(filter, filter_exts)
         .save_file()
 }
+
+pub fn load_icon<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<tray_icon::Icon> {
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::open(path)
+            .map_err(|e| std::io::Error::other(format!("Failed to open icon path {e}")))?
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+        .map_err(|e| std::io::Error::other(format!("Failed to create tray icon: {e}")))
+}
