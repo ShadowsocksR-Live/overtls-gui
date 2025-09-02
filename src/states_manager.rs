@@ -97,9 +97,6 @@ pub struct AppState {
     pub window: WindowState,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub working_node: Option<OverTlsNode>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub current_node_index: Option<usize>,
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -214,5 +211,15 @@ impl SystemSettings {
             module_filters,
             default_level,
         }
+    }
+
+    pub fn is_log_level_equal(&self, other: &SystemSettings) -> bool {
+        self.rustls_log_level == other.rustls_log_level
+            && self.tokio_tungstenite_log_level == other.tokio_tungstenite_log_level
+            && self.tungstenite_log_level == other.tungstenite_log_level
+            && self.ipstack_log_level == other.ipstack_log_level
+            && self.overtls_log_level == other.overtls_log_level
+            && self.tun2proxy_log_level == other.tun2proxy_log_level
+            && self.log_level == other.log_level
     }
 }

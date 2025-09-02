@@ -645,6 +645,12 @@ async fn main() -> Result<(), BoxError> {
         // Deal with settings dialog results
         while let Ok(new_settings) = settings_rx.try_recv() {
             let tun2proxy_enable = new_settings.tun2proxy_enable.unwrap_or_default();
+            let equal_log_level = state
+                .borrow()
+                .system_settings
+                .as_ref()
+                .map(|s| s.is_log_level_equal(&new_settings))
+                .unwrap_or(false);
             state.borrow_mut().system_settings = Some(new_settings);
             if tun2proxy_enable && !run_as::is_elevated() {
                 if let Ok(status) = core::restart_as_admin() {
@@ -657,8 +663,18 @@ async fn main() -> Result<(), BoxError> {
                         .set_level(rfd::MessageLevel::Error)
                         .show();
                 }
+            } else if !equal_log_level {
+                rfd::MessageDialog::new()
+                    .set_title("Restart Required")
+                    .set_description("Log level changes will take effect after restart.")
+                    .set_level(rfd::MessageLevel::Info)
+                    .show();
+                save_final_app_state(&state, &remote_nodes, &win, &current_node_index)?;
+                if let Err(e) = run_as::restart_self(None, false) {
+                    log::error!("Failed to restart self: {e}");
+                }
+                ::fltk::app::quit();
             }
-            log::info!("Settings updated. Log filter changes will take effect after restart.");
         }
 
         // Handle results from node details dialogs
@@ -725,11 +741,21 @@ async fn main() -> Result<(), BoxError> {
         }
     }
 
-    state.borrow_mut().remote_nodes = remote_nodes.borrow().clone();
-    state.borrow_mut().window.refresh_window(&win);
-    state.borrow_mut().current_node_index = *current_node_index.borrow();
+    fn save_final_app_state(
+        state: &Rc<RefCell<states_manager::AppState>>,
+        remote_nodes: &Rc<RefCell<Vec<OverTlsNode>>>,
+        win: &Window,
+        current_node_index: &Rc<RefCell<Option<usize>>>,
+    ) -> std::io::Result<()> {
+        state.borrow_mut().remote_nodes = remote_nodes.borrow().clone();
+        state.borrow_mut().window.refresh_window(win);
+        state.borrow_mut().current_node_index = *current_node_index.borrow();
 
-    states_manager::save_app_state(&state.borrow())?;
+        states_manager::save_app_state(&state.borrow())?;
+        Ok(())
+    }
+
+    save_final_app_state(&state, &remote_nodes, &win, &current_node_index)?;
 
     if let Err(e) = stop_running_node(&running_token, &running_handle) {
         log::debug!("Failed to stop running node: {e}");
