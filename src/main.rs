@@ -519,9 +519,10 @@ async fn main() -> Result<(), BoxError> {
     });
 
     let tray_icon_closur = || -> Result<(tray_icon::TrayIcon, tray_icon::menu::MenuItem, tray_icon::menu::MenuItem), BoxError> {
-        // TODO: File path must be changed in production
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icon.png");
-        let icon = util::load_icon(path)?;
+        let exe_path = std::env::current_exe()?;
+        let exe_dir = exe_path.parent().ok_or("Failed to get exe dir")?;
+        let icon_path = exe_dir.join("assets").join("icon.png");
+        let icon = util::load_icon(icon_path)?;
 
         let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
         let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
