@@ -506,26 +506,13 @@ async fn main() -> Result<(), BoxError> {
         win.iconize();
     });
 
-    let remote_nodes_clone = remote_nodes.clone();
     let mut table_clone = table.clone();
-    let mut w = win.clone();
+    let w = win.clone();
     win.handle(move |_, ev| {
         if ev == Event::Resize {
             let h = w.height() - MENUBAR_HEIGHT - LOG_HEIGHT;
             content_table::update_table_size(&mut table_clone, w.width(), h);
             true // Indicate that the event was handled
-        } else if ev == Event::DndEnter || ev == Event::DndDrag || ev == Event::DndRelease {
-            true
-        } else if ev == Event::Paste {
-            let new_configs = paste_operations::files_drag_n_drop();
-            if new_configs.is_empty() {
-                return false; // No new configs to add
-            }
-            for config in new_configs {
-                remote_nodes_clone.borrow_mut().push(config);
-            }
-            refresh_table(&mut table_clone, &mut w, remote_nodes_clone.borrow().len());
-            true
         } else {
             false
         }

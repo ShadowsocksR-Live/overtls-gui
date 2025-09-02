@@ -25,21 +25,6 @@ pub fn paste() -> std::io::Result<OverTlsNode> {
     config_from_image(&dyn_img)
 }
 
-pub fn files_drag_n_drop() -> Vec<OverTlsNode> {
-    let mut configs = Vec::new();
-    for line in fltk::app::event_text().lines() {
-        let path = line.trim();
-        if path.is_empty() {
-            continue;
-        }
-        match process_inputed_file(path) {
-            Ok(config) => configs.push(config),
-            Err(e) => log::warn!("Failed to process dropped file: {e}"),
-        }
-    }
-    configs
-}
-
 pub fn process_inputed_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<OverTlsNode> {
     use std::io::{Error, ErrorKind::InvalidData};
     let path = path.as_ref();
