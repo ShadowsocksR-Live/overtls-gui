@@ -507,8 +507,7 @@ async fn main() -> Result<(), BoxError> {
     });
 
     let mut table_clone = table.clone();
-    let w = win.clone();
-    win.handle(move |_, ev| {
+    win.handle(move |w, ev| {
         if ev == Event::Resize {
             let h = w.height() - MENUBAR_HEIGHT - LOG_HEIGHT;
             content_table::update_table_size(&mut table_clone, w.width(), h);
@@ -518,10 +517,10 @@ async fn main() -> Result<(), BoxError> {
         }
     });
 
+    let icon_path = util::get_main_icon_path()?;
+    util::set_window_icon(&mut win, icon_path.clone())?;
+
     let tray_icon_closur = || -> Result<(tray_icon::TrayIcon, tray_icon::menu::MenuItem, tray_icon::menu::MenuItem), BoxError> {
-        let exe_path = std::env::current_exe()?;
-        let exe_dir = exe_path.parent().ok_or("Failed to get exe dir")?;
-        let icon_path = exe_dir.join("assets").join("icon.png");
         let icon = util::load_icon(icon_path)?;
 
         let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
