@@ -13,8 +13,8 @@ pub fn merge_system_settings_to_node_config(system_settings: &SystemSettings, no
 
 pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
     log::debug!("Not running as admin, trying to elevate...");
-    run_as::restart_self_elevated(None, true, false, Some(std::time::Duration::from_secs(10)))?
-        .ok_or_else(|| std::io::Error::other("Non-blocking restart does not return exit status"))
+    let status = run_as::restart_self_elevated(None, true, false, Some(std::time::Duration::from_secs(10)))?;
+    Ok(status.unwrap_or_default())
 }
 
 pub fn main_task_block(

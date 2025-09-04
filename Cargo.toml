@@ -38,5 +38,6 @@ short_description = "OverTLS clients manager"
 long_description = """
 A graphical user interface for managing OverTLS clients.
 """
-osx_frameworks = ["SDL2"]
+deb_depends = []
+osx_frameworks = []
 osx_url_schemes = ["com.ssrlive.overtlsgui"]

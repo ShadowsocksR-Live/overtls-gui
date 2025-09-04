@@ -275,7 +275,7 @@ pub fn create_table(
                 let configs = configs_for_draw.borrow();
                 let text = configs.get(row as usize).and_then(|cfg| cfg.remarks.as_deref()).unwrap_or("");
                 let is_selected = selected_row_draw.borrow().is_some_and(|sel| sel as i32 == row);
-                let check = if cfg!(target_os = "linux") { "✔  " } else { "✔ " };
+                let check = if cfg!(unix) { "✔  " } else { "✔ " };
                 let display_text = format!("{}{text}", if is_selected { check } else { "     " });
                 fltk::draw::draw_text2(&display_text, x, y, w, h, Align::Left);
             }
