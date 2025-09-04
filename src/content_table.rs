@@ -157,6 +157,7 @@ pub fn create_table(
                         Ok(json_str) => {
                             if std::fs::write(&path, json_str).is_ok() {
                                 log::debug!("Node exported to: {}", path.display());
+                                crate::states_manager::set_file_owner_if_needed(&path);
                             } else {
                                 rfd::MessageDialog::new()
                                     .set_title("Error")

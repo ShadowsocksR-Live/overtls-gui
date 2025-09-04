@@ -123,10 +123,28 @@ impl Drop for AppState {
     }
 }
 
+fn get_real_config_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+        let home_path = PathBuf::from("/home").join(&sudo_user).join(".config");
+        return home_path;
+    }
+    dirs::config_dir().unwrap_or_else(|| std::env::current_dir().unwrap())
+}
+
 fn get_config_path() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
+    let mut path = get_real_config_dir();
     path.push(env!("CARGO_PKG_NAME"));
-    let _ = std::fs::create_dir_all(&path);
+    let _r = std::fs::create_dir_all(&path);
+    #[cfg(target_os = "linux")]
+    if _r.is_ok()
+        && run_as::is_elevated()
+        && let Ok(sudo_user) = std::env::var("SUDO_USER")
+        && path.starts_with(format!("/home/{sudo_user}/.config"))
+    {
+        // chown -R <sudo_user> <path>
+        let _ = std::process::Command::new("chown").arg("-R").arg(&sudo_user).arg(&path).status();
+    }
     path.push("config.json");
     path
 }
@@ -143,7 +161,19 @@ pub fn load_app_state() -> AppState {
 pub fn save_app_state(state: &AppState) -> std::io::Result<()> {
     let config_path = get_config_path();
     let contents = serde_json::to_string_pretty(state).map_err(|e| std::io::Error::other(format!("Failed to serialize state: {e}")))?;
-    std::fs::write(config_path, contents)
+    std::fs::write(&config_path, &contents)?;
+    set_file_owner_if_needed(&config_path);
+    Ok(())
+}
+
+/// If needed, set the specified file to be owned by sudo_user
+pub fn set_file_owner_if_needed<P: AsRef<std::path::Path>>(_path: P) {
+    #[cfg(target_os = "linux")]
+    if run_as::is_elevated()
+        && let Ok(sudo_user) = std::env::var("SUDO_USER")
+    {
+        let _ = std::process::Command::new("chown").arg(&sudo_user).arg(_path.as_ref()).status();
+    }
 }
 
 impl SystemSettings {

@@ -34,27 +34,13 @@ async fn main() -> Result<(), BoxError> {
     // #[cfg(debug_assertions)]
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-    // Check for root privileges on Linux
-    #[cfg(target_os = "linux")]
-    if !run_as::is_elevated() {
-        let program_name = std::env::args().next().unwrap_or_else(|| "overtls-gui".to_string());
-        let info = format!("This application requires root privileges to run on Linux.\n\nPlease run with: \nsudo {program_name}\n\n");
-        eprint!("{info}");
-        rfd::MessageDialog::new()
-            .set_title("Error")
-            .set_description(info)
-            .set_level(rfd::MessageLevel::Error)
-            .show();
-        std::process::exit(1);
-    }
-
     let (tx, rx) = std::sync::mpsc::channel();
 
     let state = states_manager::load_app_state();
     let system_settings = state.system_settings.clone().unwrap_or_default();
 
     if let Err(e) = log::set_boxed_logger(Box::new(system_settings.create_logger(tx))) {
-        eprintln!("Failed to set logger: {e}");
+        log::warn!("Failed to set logger: {e}");
     }
     // Note: No longer use log::set_max_level, as it is now controlled by the Logger internally
     log::set_max_level(log::LevelFilter::Trace);
@@ -331,6 +317,7 @@ async fn main() -> Result<(), BoxError> {
             Ok(json_str) => {
                 if std::fs::write(&path, json_str).is_ok() {
                     log::debug!("Node exported to: {}", path.display());
+                    states_manager::set_file_owner_if_needed(&path);
                     state_clone.borrow_mut().set_current_path(path.parent().unwrap_or(&origin_path));
                 } else {
                     rfd::MessageDialog::new()
@@ -652,6 +639,7 @@ async fn main() -> Result<(), BoxError> {
                 .unwrap_or(false);
             state.borrow_mut().system_settings = Some(new_settings);
             if tun2proxy_enable && !run_as::is_elevated() {
+                save_final_app_state(&state, &remote_nodes, &win, &current_node_index)?;
                 if let Ok(status) = core::restart_as_admin() {
                     log::debug!("Restarted as admin with status code {status}, exiting current instance.");
                     ::fltk::app::quit();

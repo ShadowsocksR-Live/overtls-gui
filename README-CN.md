@@ -43,13 +43,7 @@ cargo build --release
 
 ### 運行
 
-Linux（需 root 權限）：
-
-```bash
-sudo ./target/release/overtls-gui
-```
-
-Windows/macOS：
+Windows/macOS/Linux：
 
 ```bash
 ./target/release/overtls-gui
