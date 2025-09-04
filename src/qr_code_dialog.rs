@@ -21,6 +21,9 @@ pub fn qr_code_dialog(parent: &Window, title: &str, ssr_url: &str) -> std::io::R
     let x = parent.x() + (parent.width() - dlg_width) / 2;
     let y = parent.y() + (parent.height() - dlg_width) / 2;
     let mut win = Window::new(x, y, dlg_width, dlg_width, title);
+    let icon = crate::util::get_embedded_main_icon()?;
+    win.set_icon(Some(icon));
+
     let mut frame = Frame::new(72, 72, 256, 256, "");
     let png = PngImage::from_data(&png_bytes).map_err(|e| std::io::Error::other(format!("FLTK image error: {e}")))?;
     frame.set_image(Some(png));

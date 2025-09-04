@@ -5,7 +5,7 @@ use fltk::{
     frame::Frame,
     group::Flex,
     input::Input,
-    prelude::{ButtonExt, GroupExt, InputExt, MenuExt, WidgetBase, WidgetExt},
+    prelude::{ButtonExt, GroupExt, InputExt, MenuExt, WidgetBase, WidgetExt, WindowExt},
     window::Window,
 };
 
@@ -93,6 +93,9 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
     let x = win.x() + (win.width() - dialog_w) / 2;
     let y = win.y() + (win.height() - dialog_h) / 2;
     let mut dlg = Window::new(x, y, dialog_w, dialog_h, "Settings");
+    let icon = crate::util::get_embedded_main_icon().unwrap();
+    dlg.set_icon(Some(icon));
+
     let mut tabs = fltk::group::Tabs::new(0, 0, dialog_w, dialog_h, "");
     tabs.set_tab_align(Align::Top);
 

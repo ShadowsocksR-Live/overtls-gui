@@ -5,7 +5,7 @@ use fltk::{
     frame::Frame,
     group::Flex,
     input::Input,
-    prelude::{ButtonExt, GroupExt, InputExt, WidgetBase, WidgetExt},
+    prelude::{ButtonExt, GroupExt, InputExt, WidgetBase, WidgetExt, WindowExt},
     window::Window,
 };
 use overtls::{ClientConfig, TunnelPath};
@@ -52,6 +52,8 @@ pub fn show_node_details(win: &Window, node_cfg: Option<OverTlsNode>, tx: std::s
     };
 
     let mut dlg = Window::new(x, y, dialog_w, dialog_h, &*title);
+    let icon = crate::util::get_embedded_main_icon().unwrap();
+    dlg.set_icon(Some(icon));
 
     let mut flex = Flex::default_fill().column();
     flex.fixed(&dlg, dialog_h);

@@ -504,11 +504,11 @@ async fn main() -> Result<(), BoxError> {
         }
     });
 
-    let icon_path = util::get_main_icon_path()?;
-    util::set_window_icon(&mut win, icon_path.clone())?;
+    let icon = util::get_embedded_main_icon()?;
+    win.set_icon(Some(icon));
 
     let tray_icon_closur = || -> Result<(tray_icon::TrayIcon, tray_icon::menu::MenuItem, tray_icon::menu::MenuItem), BoxError> {
-        let icon = util::load_icon(icon_path)?;
+        let icon = util::load_icon_from_bytes(util::MAIN_ICON_BYTES)?;
 
         let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
         let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);

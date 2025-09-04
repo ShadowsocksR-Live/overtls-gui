@@ -41,40 +41,17 @@ pub fn file_chooser_save_file(title: &str, default_path: Option<&str>, filter: &
         .save_file()
 }
 
-pub fn load_icon<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<tray_icon::Icon> {
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::open(path)
-            .map_err(|e| std::io::Error::other(format!("Failed to open icon path {e}")))?
-            .into_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
-        .map_err(|e| std::io::Error::other(format!("Failed to create tray icon: {e}")))
+pub fn load_icon_from_bytes(bytes: &[u8]) -> std::io::Result<tray_icon::Icon> {
+    let image = image::load_from_memory(bytes)
+        .map_err(|e| std::io::Error::other(format!("Failed to load icon from memory: {e}")))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    let rgba = image.into_raw();
+    tray_icon::Icon::from_rgba(rgba, width, height).map_err(|e| std::io::Error::other(format!("Failed to create tray icon: {e}")))
 }
 
-/// Get the path to the application icon (assets/main.png) relative to the executable.
-pub fn get_main_icon_path() -> std::io::Result<PathBuf> {
-    let exe_path = std::env::current_exe()?;
-    let exe_dir = exe_path
-        .parent()
-        .ok_or_else(|| std::io::Error::other("Failed to get executable directory"))?;
-    let icon_path = exe_dir.join("assets").join("main.png");
-    if icon_path.exists() {
-        Ok(icon_path)
-    } else {
-        Err(std::io::Error::other(format!("Icon file not found at {icon_path:?}")))
-    }
-}
+pub const MAIN_ICON_BYTES: &[u8] = include_bytes!("../assets/main.png");
 
-pub fn set_window_icon<P: AsRef<std::path::Path>>(window: &mut fltk::window::Window, icon_path: P) -> std::io::Result<()> {
-    let mut f = std::fs::File::open(icon_path.as_ref())?;
-    use std::io::Read;
-    let mut buf = Vec::new();
-    f.read_to_end(&mut buf)?;
-    let png = fltk::image::PngImage::from_data(&buf).map_err(|e| std::io::Error::other(format!("Failed to load icon data: {e}")))?;
-    use fltk::prelude::WindowExt;
-    window.set_icon(Some(png));
-    Ok(())
+pub fn get_embedded_main_icon() -> std::io::Result<fltk::image::PngImage> {
+    fltk::image::PngImage::from_data(MAIN_ICON_BYTES).map_err(|e| std::io::Error::other(format!("Failed to load embedded icon: {e}")))
 }
