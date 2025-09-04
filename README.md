@@ -51,6 +51,21 @@ On Windows/macOS/Linux:
 ./target/release/overtls-gui
 ```
 
+### Build Bundles (Optional)
+
+For creating platform-specific bundles (e.g., `.msi` for Windows, `.dmg` for macOS, `.deb` for Linux),
+you can use the `cargo-bundle` tool or similar tools.
+
+```bash
+cargo install cargo-bundle
+
+cargo bundle --release --format deb --target x86_64-unknown-linux-gnu # For Linux .deb package
+cargo bundle --release --format osx --target x86_64-apple-darwin # For macOS .app executable package
+
+cargo build
+dotnet build msi/installer.wixproj # For Windows .msi installer (requires .NET SDK and WiX Toolset)
+```
+
 ## Usage
 
 - Use the menu bar to import nodes (from file, clipboard, or QR code), create new nodes, delete, and view details.

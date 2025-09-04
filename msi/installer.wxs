@@ -1,0 +1,38 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Id="ssrlive.OverTLS" Name="OverTLS-GUI" Manufacturer="ssrlive" Version="0.1.0" UpgradeCode="1a76f67a-3333-4e44-9999-a7e6a6789e1d">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="ProductFeature" Title="Installer" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.AssetsDir)\License.rtf" />
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="OverTLS-GUI" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component>
+        <File Source="$(var.BinDir)\overtls-gui.exe" />
+      </Component>
+      <Component>
+        <File Source="$(var.BinDir)\wintun.dll" />
+      </Component>
+      <Component>
+        <File Source="$(var.AssetsDir)\main.ico" />
+      </Component>
+      <Component>
+        <File Source="$(var.AssetsDir)\License.rtf" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

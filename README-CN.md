@@ -49,6 +49,21 @@ Windows/macOS/Linux：
 ./target/release/overtls-gui
 ```
 
+### 編譯打包（可選）
+
+創建平台特定的安裝包（如 Windows 的 `.msi` 、 macOS 的 `.dmg` 、 Linux 的 `.deb`），
+你可以使用 `cargo-bundle` 工具或類似工具。
+
+```bash
+cargo install cargo-bundle
+
+cargo bundle --release --format deb --target x86_64-unknown-linux-gnu # For Linux .deb package
+cargo bundle --release --format osx --target x86_64-apple-darwin # For macOS .app executable package
+
+cargo build
+dotnet build msi/installer.wixproj # For Windows .msi installer (requires .NET SDK and WiX Toolset)
+```
+
 ## 使用方法
 
 - 通過菜單欄可導入節點（文件/剪貼板/QR Code）、新建、刪除、查看詳情。
