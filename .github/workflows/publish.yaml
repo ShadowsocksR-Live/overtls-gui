@@ -1,0 +1,106 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            arch: aarch64
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            arch: x86
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            arch: x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          # Can't support `aarch64-unknown-linux-gnu` building yet due to some dependency issues
+          # - os: ubuntu-latest
+          #   target: aarch64-unknown-linux-gnu
+          #   arch: aarch64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Prepare (Linux)
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install --fix-missing -y libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libgdk-pixbuf2.0-dev libgtk-3-dev libxdo-dev libxmu-dev
+
+    - name: Install cargo-bundle
+      if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest' }}
+      run: cargo install cargo-bundle
+
+    - name: Build
+      if: ${{ !cancelled() }}
+      run: cargo build --release --verbose --all-features --target ${{ matrix.target }}
+
+    - name: Bundle (Linux .deb)
+      if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+      run: cargo bundle --release --format deb --target ${{ matrix.target }}
+
+    - name: Bundle (macOS .app)
+      if: ${{ !cancelled() && matrix.os == 'macos-latest' }}
+      run: cargo bundle --release --format osx --target ${{ matrix.target }}
+
+    - name: Build installer (Windows .msi)
+      if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
+      run: dotnet build msi/installer.wixproj -c Release -p:BinDir=../target/${{ matrix.target }}/release
+
+    - name: Pack executable
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        mkdir -p pubdir
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          cp msi/bin/release/OverTLS-GUI-Installer.msi pubdir/overtls-gui-windows-${{ matrix.arch }}.msi
+        fi
+        if [ "${{ matrix.os }}" == "macos-latest" ]; then
+          hdiutil create -volname OverTLS-GUI -srcfolder target/${{ matrix.target }}/release/bundle/osx/OverTLS-GUI.app -ov -format UDZO pubdir/overtls-gui-macos-${{ matrix.arch }}.dmg
+        fi
+        if [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+          # cargo-bundle produces arch-specific deb names, find the correct one
+          DEB_FILE=$(find target/${{ matrix.target }}/release/bundle/deb -name "*.deb")
+          cp "$DEB_FILE" pubdir/overtls-gui-linux-${{ matrix.arch }}.deb
+        fi
+
+        ls -lh pubdir
+        echo "Artifacts are ready"
+
+    - name: Publish
+      if: ${{ !cancelled() }}
+      uses: softprops/action-gh-release@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        files: pubdir/*
+
+    - name: Abort on error
+      if: ${{ failure() }}
+      run: echo "Some of jobs failed" && false
