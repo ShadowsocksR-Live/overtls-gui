@@ -28,6 +28,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install --fix-missing libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev libgdk-pixbuf2.0-dev libgtk-3-dev libxdo-dev libxmu-dev -y
 
+    - name: Install cargo-bundle
+      if: ${{ !cancelled() && (matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest') }}
+      run: cargo install cargo-bundle
+
     - name: Rustfmt
       if: ${{ !cancelled() }}
       run: cargo fmt -- --check
@@ -40,6 +44,18 @@ jobs:
     - name: Test
       if: ${{ !cancelled() }}
       run: cargo test --verbose --all-features
+
+    - name: Bundle (Linux .deb)
+      if: ${{ !cancelled() && matrix.os == 'ubuntu-latest' }}
+      run: cargo bundle --format deb
+
+    - name: Bundle (macOS .app)
+      if: ${{ !cancelled() && matrix.os == 'macos-latest' }}
+      run: cargo bundle --format osx
+
+    - name: Build installer (Windows .msi)
+      if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
+      run: dotnet build msi/installer.wixproj
 
     - name: Abort on error
       if: ${{ failure() }}
