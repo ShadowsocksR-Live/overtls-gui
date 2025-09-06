@@ -1,38 +1,73 @@
-﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Id="ssrlive.OverTLS" Name="OverTLS-GUI" Manufacturer="ssrlive" Version="0.1.0" UpgradeCode="1a76f67a-3333-4e44-9999-a7e6a6789e1d">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Feature Id="ProductFeature" Title="Installer" Level="1">
+    <Feature Id="ProductFeature" Title="OverTLS-GUI" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="RegistryComponent" />
+      <ComponentRef Id="DesktopFolderShortcut" />
     </Feature>
 
+    <!-- Use InstallDir UI -->
     <ui:WixUI Id="WixUI_InstallDir" />
+
+    <!-- Properties to control the standard UI behavior -->
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
 
+    <!-- Optional checkbox on the exit dialog to launch the application -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch OverTLS-GUI" />
+    <CustomAction Id="LaunchApplication" Directory="INSTALLFOLDER" ExeCommand="[#overtls_gui_exe]" Execute="immediate" Return="asyncNoWait" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <UI Id="UI">
+        <Publish Dialog="ExitDialog"
+            Control="Finish"
+            Event="DoAction"
+            Value="LaunchApplication"
+            Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed"/>
+    </UI>
+
     <WixVariable Id="WixUILicenseRtf" Value="$(var.AssetsDir)\License.rtf" />
+    <Icon Id="main.ico" SourceFile="$(var.AssetsDir)\main.ico" />
   </Package>
 
   <Fragment>
     <StandardDirectory Id="ProgramFilesFolder">
       <Directory Id="INSTALLFOLDER" Name="OverTLS-GUI" />
     </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="OverTLS-GUI">
+        <Component Id="RegistryComponent" Guid="1a76f67a-6666-4e44-9999-a7e6a6789e1d">
+          <RegistryValue Root="HKCU" Key="Software\ssrlive\OverTLS-GUI" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+          <Shortcut Id="ApplicationStartMenuShortcut" Name="OverTLS-GUI" Description="OverTLS-GUI" Target="[#overtls_gui_exe]" Icon="main.ico" WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveAppProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+          <RemoveFile Id="RemoveAppPrograms" Directory="ApplicationProgramsFolder" Name="*.*" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopFolderShortcut" Guid="5A254682-DD1F-453D-8333-177757282026">
+        <Shortcut Id="DesktopShortcut" Name="OverTLS-GUI" Target="[#overtls_gui_exe]" WorkingDirectory="INSTALLFOLDER" Icon="main.ico" />
+        <RegistryValue Root="HKCU" Key="Software\ssrlive\OverTLS-GUI" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </StandardDirectory>
   </Fragment>
 
   <Fragment>
     <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <Component>
-        <File Source="$(var.BinDir)\overtls-gui.exe" />
+      <Component Id="MainExecutableComponent" Guid="*">
+        <File Id="overtls_gui_exe" Source="$(var.BinDir)\overtls-gui.exe" KeyPath="yes" />
       </Component>
-      <Component>
+      <Component Guid="*">
         <File Source="$(var.BinDir)\wintun.dll" />
       </Component>
-      <Component>
+      <Component Guid="*">
         <File Source="$(var.AssetsDir)\main.ico" />
       </Component>
-      <Component>
+      <Component Guid="*">
         <File Source="$(var.AssetsDir)\License.rtf" />
       </Component>
     </ComponentGroup>
   </Fragment>
+
 </Wix>
