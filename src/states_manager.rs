@@ -68,6 +68,9 @@ pub struct SystemSettings {
 
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tun2proxy_log_level: Option<String>, // tun2proxy log level
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_auto_scroll: Option<bool>, // log auto scroll
 }
 
 impl Default for SystemSettings {
@@ -88,6 +91,7 @@ impl Default for SystemSettings {
             ipstack_log_level: Some("Debug".to_string()),
             overtls_log_level: Some("Debug".to_string()),
             tun2proxy_log_level: Some("Debug".to_string()),
+            log_auto_scroll: Some(true),
         }
     }
 }

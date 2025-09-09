@@ -160,7 +160,7 @@ async fn main() -> Result<(), BoxError> {
     let running_token_run = running_token.clone();
     let running_handle_run = running_handle.clone();
     let state_clone = state.clone();
-    menubar.add("&Main/Run", Shortcut::None, MenuFlag::Normal, move |_m| {
+    menubar.add("&Main/Run\t", Shortcut::Alt | 'r', MenuFlag::Normal, move |_m| {
         let Some(idx) = *current_node_index_run.borrow() else {
             rfd::MessageDialog::new()
                 .set_title("Error")
@@ -214,20 +214,33 @@ async fn main() -> Result<(), BoxError> {
         let title = config.remarks.clone().unwrap_or_default();
         let token = overtls::CancellationToken::new();
         *running_token_run.lock().unwrap() = Some(token.clone());
-        let handle = std::thread::spawn(move || core::main_task_block(config, tun2proxy_args, token));
+        let title_clone = title.clone();
+        let running_token = running_token_run.clone();
+        let running_handle = running_handle_run.clone();
+        let handle = std::thread::spawn(move || {
+            let res = core::main_task_block(config, tun2proxy_args, token);
+            if let Err(e) = &res {
+                log::error!("Node '{title_clone}' exited with error: {e}");
+            }
+            if let Ok(mut token) = running_token.try_lock()
+                && let Some(token) = token.take()
+            {
+                token.cancel();
+            }
+            if let Ok(mut handle) = running_handle.try_lock() {
+                handle.take();
+            }
+            res
+        });
         *running_handle_run.lock().unwrap() = Some(handle);
         log::debug!("Node '{title}' is starting...");
     });
 
     let running_token_stop = running_token.clone();
     let running_handle_stop = running_handle.clone();
-    menubar.add("&Main/Stop", Shortcut::None, MenuFlag::MenuDivider, move |_m| {
+    menubar.add("&Main/Stop\t", Shortcut::Alt | 's', MenuFlag::MenuDivider, move |_m| {
         if let Err(e) = stop_running_node(&running_token_stop, &running_handle_stop) {
-            rfd::MessageDialog::new()
-                .set_title("Error")
-                .set_description(format!("Failed to stop running node: {e}"))
-                .set_level(rfd::MessageLevel::Error)
-                .show();
+            log::error!("Failed to stop running node: {e}");
         }
     });
 
@@ -240,13 +253,13 @@ async fn main() -> Result<(), BoxError> {
         if let Some(token) = running_token.lock().map_err(f1)?.take() {
             token.cancel();
         } else {
-            err_info = Some("No running node.");
+            err_info = Some("No running node.".to_string());
         }
         let f2 = |e| std::io::Error::other(format!("running_handle lock error: {e}"));
         if let Some(handle) = running_handle.lock().map_err(f2)?.take()
-            && util::thread_handle_join_with_timeout(handle, 1000).is_none()
+            && let Err(e) = util::thread_handle_join_with_timeout(handle, 3000)
         {
-            err_info = Some("Node thread did not finish in 1 second, force exit.");
+            err_info = Some(format!("Failed to join running thread: {e:?}"));
         }
         err_info.map(|e| Err(std::io::Error::other(e))).unwrap_or(Ok(()))
     }
@@ -722,8 +735,10 @@ async fn main() -> Result<(), BoxError> {
                     style_buffer.set_text(new_style);
                 }
                 log_display.set_highlight_data(style_buffer.clone(), style_table);
-                let lines = log_buffer.count_lines(0, log_buffer.length());
-                log_display.scroll(lines, 0);
+                if state.borrow().system_settings.as_ref().unwrap().log_auto_scroll.unwrap_or(true) {
+                    let lines = log_buffer.count_lines(0, log_buffer.length());
+                    log_display.scroll(lines, 0);
+                }
             }
         }
     }

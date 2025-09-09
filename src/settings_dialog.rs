@@ -89,7 +89,7 @@ macro_rules! add_row_spin {
 /// Pop up the settings dialog, and send the result via channel to avoid idle closure accumulation.
 pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: std::sync::mpsc::Sender<SystemSettings>) {
     let dialog_w = 600;
-    let dialog_h = 320;
+    let dialog_h = 360;
     let x = win.x() + (win.width() - dialog_w) / 2;
     let y = win.y() + (win.height() - dialog_h) / 2;
     let mut dlg = Window::new(x, y, dialog_w, dialog_h, "Settings");
@@ -157,6 +157,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
     let mut ipstack_log_level = add_row_choice!("Ipstack Log Level", ipstack_log_level, flex_logging, &log_level_options());
     let mut overtls_log_level = add_row_choice!("OverTls Log Level", overtls_log_level, flex_logging, &log_level_options());
     let mut tun2proxy_log_level = add_row_choice!("Tun2proxy Log Level", tun2proxy_log_level, flex_logging, &log_level_options());
+    let mut log_auto_scroll = add_row_check!("Log Auto Scroll", log_auto_scroll, flex_logging);
 
     tab_logging.end();
 
@@ -191,6 +192,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
     ipstack_log_level.set_value(log_level_index(system_settings.ipstack_log_level.as_deref().unwrap_or("Info")));
     overtls_log_level.set_value(log_level_index(system_settings.overtls_log_level.as_deref().unwrap_or("Info")));
     tun2proxy_log_level.set_value(log_level_index(system_settings.tun2proxy_log_level.as_deref().unwrap_or("Info")));
+    log_auto_scroll.set_value(system_settings.log_auto_scroll.unwrap_or(true));
 
     let mut submit_btn = Button::new(dialog_w / 2 - 60, dialog_h - 45, 120, 35, "Submit");
     dlg.end();
@@ -228,6 +230,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
         let ipstack_log_level_val = Some(log_level_by_index(ipstack_log_level.value()));
         let overtls_log_level_val = Some(log_level_by_index(overtls_log_level.value()));
         let tun2proxy_log_level_val = Some(log_level_by_index(tun2proxy_log_level.value()));
+        let log_auto_scroll_val = log_auto_scroll.value();
 
         let tun2proxy_cfg = Some(tun2proxy::Args {
             exit_on_fatal_error: exit_on_fatal_error_val,
@@ -255,6 +258,7 @@ pub fn show_settings_dialog(win: &Window, system_settings: &SystemSettings, tx: 
             ipstack_log_level: ipstack_log_level_val,
             overtls_log_level: overtls_log_level_val,
             tun2proxy_log_level: tun2proxy_log_level_val,
+            log_auto_scroll: Some(log_auto_scroll_val),
         };
         let _ = tx.send(new_settings);
         dlg_cb.hide();
