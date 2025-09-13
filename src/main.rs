@@ -520,11 +520,20 @@ async fn main() -> Result<(), BoxError> {
     let icon = util::get_embedded_main_icon()?;
     win.set_icon(Some(icon));
 
-    let tray_icon_closur = || -> Result<(tray_icon::TrayIcon, tray_icon::menu::MenuItem, tray_icon::menu::MenuItem), BoxError> {
+    const STR_SHOW: &str = "Show main window";
+    const STR_QUIT: &str = "Quit";
+
+    static TRAY_ICON_MENU_ITEM_IDS: std::sync::LazyLock<Arc<Mutex<std::collections::HashMap<&str, tray_icon::menu::MenuId>>>> =
+        std::sync::LazyLock::new(|| Arc::new(Mutex::new(std::collections::HashMap::new())));
+
+    let tray_icon_closure = || -> Result<tray_icon::TrayIcon, BoxError> {
         let icon = util::load_icon_from_bytes(util::MAIN_ICON_BYTES)?;
 
-        let show_item = tray_icon::menu::MenuItem::new("Show main window", true, None);
-        let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
+        let show_item = tray_icon::menu::MenuItem::new(STR_SHOW, true, None);
+        let quit_item = tray_icon::menu::MenuItem::new(STR_QUIT, true, None);
+
+        TRAY_ICON_MENU_ITEM_IDS.lock().unwrap().insert(STR_SHOW, show_item.id().clone());
+        TRAY_ICON_MENU_ITEM_IDS.lock().unwrap().insert(STR_QUIT, quit_item.id().clone());
 
         let tray_menu = tray_icon::menu::Menu::with_items(&[&show_item, &quit_item])?;
 
@@ -533,7 +542,7 @@ async fn main() -> Result<(), BoxError> {
             .with_tooltip("OverTLS GUI - Click to show/hide window")
             .with_icon(icon)
             .build()?;
-        Ok((tray_icon, show_item, quit_item))
+        Ok(tray_icon)
     };
 
     #[cfg(target_os = "linux")]
@@ -542,14 +551,10 @@ async fn main() -> Result<(), BoxError> {
     #[cfg(target_os = "linux")]
     std::thread::spawn(move || {
         gtk::init()?;
-        let (_tray_icon, show_item, quit_item) = tray_icon_closur()?;
+        let _holder = tray_icon_closure()?;
         loop {
             while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-                if event.id == show_item.id() {
-                    tray_icon_tx.send("show").unwrap();
-                } else if event.id == quit_item.id() {
-                    tray_icon_tx.send("quit").unwrap();
-                }
+                tray_icon_tx.send(event).unwrap();
             }
             gtk::main_iteration();
         }
@@ -560,7 +565,7 @@ async fn main() -> Result<(), BoxError> {
     });
 
     #[cfg(not(target_os = "linux"))]
-    let (_tray_icon, show_item, quit_item) = tray_icon_closur()?;
+    let _holder = tray_icon_closure()?;
 
     win.show();
 
@@ -620,25 +625,26 @@ async fn main() -> Result<(), BoxError> {
     });
 
     while ::fltk::app::wait() {
-        // Handle tray menu events
-        #[cfg(not(target_os = "linux"))]
-        while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
-            if event.id == show_item.id() {
+        fn handle_menu_event(event: &tray_icon::menu::MenuEvent, win: &mut Window) {
+            log::debug!("Tray event received: {event:?}");
+            let show_id = TRAY_ICON_MENU_ITEM_IDS.lock().unwrap().get(&STR_SHOW).cloned().unwrap();
+            let quit_id = TRAY_ICON_MENU_ITEM_IDS.lock().unwrap().get(&STR_QUIT).cloned().unwrap();
+            if show_id == event.id() {
                 win.show();
-            } else if event.id == quit_item.id() {
+            } else if quit_id == event.id() {
                 ::fltk::app::quit();
-                break;
             }
         }
 
+        // Handle tray menu events
+        #[cfg(not(target_os = "linux"))]
+        while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+            handle_menu_event(&event, &mut win);
+        }
+
         #[cfg(target_os = "linux")]
-        while let Ok(cmd) = tray_icon_rx.try_recv() {
-            log::debug!("Tray command received: {cmd}");
-            match cmd {
-                "show" => win.show(),
-                "quit" => ::fltk::app::quit(),
-                _ => (),
-            }
+        while let Ok(event) = tray_icon_rx.try_recv() {
+            handle_menu_event(&event, &mut win);
         }
 
         // Deal with settings dialog results
