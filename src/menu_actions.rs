@@ -110,7 +110,9 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                 && let Some(rc) = weak.upgrade()
             {
                 let b = rc.borrow();
-                show_qrcode_dlg::show_qrcode_dlg(frame, &b);
+                if let Err(e) = show_qrcode_dlg::show_qrcode_dlg(frame, &b) {
+                    log::error!("Failed to show QR code dialog: {e}");
+                }
             }
         }
         _ => {
