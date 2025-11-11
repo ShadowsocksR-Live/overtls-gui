@@ -26,6 +26,31 @@ impl From<MenuId> for i32 {
     }
 }
 
+impl TryFrom<i32> for MenuId {
+    type Error = std::io::Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            x if x == MenuId::Settings as i32 => Ok(MenuId::Settings),
+            x if x == MenuId::ScanQrCode as i32 => Ok(MenuId::ScanQrCode),
+            x if x == MenuId::ImportNodeFile as i32 => Ok(MenuId::ImportNodeFile),
+            x if x == MenuId::New as i32 => Ok(MenuId::New),
+            x if x == MenuId::Run as i32 => Ok(MenuId::Run),
+            x if x == MenuId::Stop as i32 => Ok(MenuId::Stop),
+            x if x == MenuId::Open as i32 => Ok(MenuId::Open),
+            x if x == MenuId::Quit as i32 => Ok(MenuId::Quit),
+            x if x == MenuId::ViewDetails as i32 => Ok(MenuId::ViewDetails),
+            x if x == MenuId::ExportNode as i32 => Ok(MenuId::ExportNode),
+            x if x == MenuId::ShowQrCode as i32 => Ok(MenuId::ShowQrCode),
+            x if x == MenuId::Delete as i32 => Ok(MenuId::Delete),
+            x if x == MenuId::Copy as i32 => Ok(MenuId::Copy),
+            x if x == MenuId::Paste as i32 => Ok(MenuId::Paste),
+            x if x == MenuId::About as i32 => Ok(MenuId::About),
+            _ => Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+        }
+    }
+}
+
 mod about_dlg;
 mod dataview;
 mod details_dlg;

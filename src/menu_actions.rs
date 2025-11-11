@@ -7,19 +7,23 @@ use std::{cell::RefCell, rc::Rc};
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
 pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i32) {
-    match id {
-        x if x == i32::from(MenuId::Quit) => {
+    let Ok(menu_id) = MenuId::try_from(id) else {
+        log::warn!("Received unknown Menu ID: {id}");
+        return;
+    };
+    match menu_id {
+        MenuId::Quit => {
             log::info!("Menu/Toolbar: Quit clicked!");
             frame.close(true);
         }
-        x if x == i32::from(MenuId::About) => {
+        MenuId::About => {
             about_dlg::show_about_dialog(frame);
         }
-        x if x == i32::from(MenuId::Settings) => {
+        MenuId::Settings => {
             log::info!("Menu/Toolbar: Settings clicked!");
             settings_dlg::settings_dlg(frame);
         }
-        x if x == i32::from(MenuId::ViewDetails) => {
+        MenuId::ViewDetails => {
             log::info!("Menu/Toolbar: View Details clicked!");
             // If a pending selection has been provided (e.g., by a double-click), use it to prefill
             if let Some(weak) = selection_ctx::get_pending_details() {
@@ -51,7 +55,7 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                 let _ = details_dlg::details_dlg(frame, None);
             }
         }
-        x if x == i32::from(MenuId::New) => {
+        MenuId::New => {
             log::info!("Menu/Toolbar: New clicked!");
             if let Some(node) = details_dlg::details_dlg(frame, None) {
                 let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
@@ -68,7 +72,7 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                 }
             }
         }
-        x if x == i32::from(MenuId::Delete) => {
+        MenuId::Delete => {
             log::info!("Menu/Toolbar: Delete clicked!");
             if let Some(weak) = selection_ctx::get_pending_details() {
                 if let Some(rc) = weak.upgrade() {
@@ -104,7 +108,7 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                 log::info!("No selection to delete.");
             }
         }
-        x if x == i32::from(MenuId::ShowQrCode) => {
+        MenuId::ShowQrCode => {
             log::info!("Menu/Toolbar: Show QR Code clicked!");
             if let Some(weak) = selection_ctx::get_pending_details()
                 && let Some(rc) = weak.upgrade()
@@ -116,7 +120,7 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
             }
         }
         _ => {
-            log::warn!("Unhandled Menu ID: {id}");
+            log::warn!("Unhandled Menu ID: {menu_id:?}");
         }
     }
 }
