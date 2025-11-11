@@ -33,12 +33,12 @@ mod logview;
 mod menu_actions;
 mod model;
 mod selection_ctx;
-mod server_node;
 mod settings;
 mod settings_dlg;
 mod show_qrcode_dlg;
 
 use model::{ServerList, create_server_tree_model};
+pub(crate) use overtls::Config as ServerNode;
 use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
@@ -53,28 +53,27 @@ fn main() {
 
         // Demo seed data: when servers key is missing (None), add two example nodes
         if nodes.is_none() {
-            let seed1 = crate::server_node::ServerNode {
+            use overtls::{ClientConfig, TunnelPath};
+            let mut seed1_client = ClientConfig::default();
+            seed1_client.client_id = Some("client-001".to_string());
+            seed1_client.server_host = "example.com".to_string();
+            seed1_client.server_port = 443;
+            seed1_client.server_domain = Some("example.com".to_string());
+            let seed1 = ServerNode {
                 remarks: Some("Sample Server 1".to_string()),
-                tunnel_path: "/".to_string(),
-                disable_tls: None,
-                client_id: Some("client-001".to_string()),
-                server_host: "example.com".to_string(),
-                server_port: 443,
-                server_domain: Some("example.com".to_string()),
-                ca_file: None,
-                dangerous_mode: None,
+                tunnel_path: TunnelPath::Single("/".to_string()),
+                client: Some(seed1_client),
+                ..Default::default()
             };
-            let seed2 = crate::server_node::ServerNode {
+            let mut seed2_client = ClientConfig::default();
+            seed2_client.server_host = "127.0.0.1".to_string();
+            seed2_client.server_port = 8080;
+            seed2_client.disable_tls = Some(true); // indicate TLS disabled
+            let seed2 = ServerNode {
                 remarks: Some("Local Dev".to_string()),
-                tunnel_path: "/dev".to_string(),
-                // Use Some(true) to indicate TLS disabled (plain) in config storage style
-                disable_tls: Some(true),
-                client_id: None,
-                server_host: "127.0.0.1".to_string(),
-                server_port: 8080,
-                server_domain: None,
-                ca_file: None,
-                dangerous_mode: None,
+                tunnel_path: TunnelPath::Single("/dev".to_string()),
+                client: Some(seed2_client),
+                ..Default::default()
             };
             nodes = Some(vec![seed1, seed2]);
         }
@@ -243,7 +242,7 @@ fn main() {
             let mut cfg = cfg_for_destroy.borrow_mut();
             cfg.window = Some(win);
             // Persist current servers from the model back to settings
-            if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<server_node::ServerNode>>(|list_rc| {
+            if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
                 list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
             }) {
                 cfg.servers = Some(servers);

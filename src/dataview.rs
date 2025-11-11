@@ -1,7 +1,7 @@
 use crate::MenuId;
+use crate::ServerNode;
 use crate::model::{NodeFields, ServerList, find_node_via_raw_ptr};
 use crate::selection_ctx;
-use crate::server_node::ServerNode;
 use crate::settings::WIDGET_MARGIN;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};

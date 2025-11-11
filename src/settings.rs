@@ -1,12 +1,10 @@
 // settings.rs
 // Contains config structs for window settings
 
+use crate::ServerNode;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
 use wxdragon::prelude::*;
-
-use crate::server_node::ServerNode;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct WindowConfig {

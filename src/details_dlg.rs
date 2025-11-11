@@ -1,5 +1,6 @@
-use crate::server_node::ServerNode;
+use crate::ServerNode;
 use crate::settings::center_rect;
+use overtls::{ClientConfig, TunnelPath};
 use wxdragon::prelude::*;
 
 /// Show details dialog.
@@ -134,23 +135,41 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
 
     // Initialize controls if editing an existing node
     if let Some(node) = node_opt {
+        // Remarks
         remarks_input.set_value(node.remarks.as_deref().unwrap_or(""));
-        tunnel_input.set_value(&node.tunnel_path);
-        // None -> unchecked; Some(true) -> checked; Some(false) -> unchecked (treat false same as None for UI)
-        disable_tls_checkbox.set_value(node.disable_tls.unwrap_or(false));
-        client_id_input.set_value(node.client_id.as_deref().unwrap_or(""));
-        server_host_input.set_value(&node.server_host);
-        server_port_input.set_value(node.server_port as i32);
-        server_domain_input.set_value(node.server_domain.as_deref().unwrap_or(""));
-        ca_file_input.set_value(node.ca_file.as_deref().unwrap_or(""));
-        dangerous_checkbox.set_value(node.dangerous_mode.unwrap_or(false));
+
+        // Tunnel Path
+        match &node.tunnel_path {
+            TunnelPath::Single(s) => tunnel_input.set_value(s),
+            other => tunnel_input.set_value(&format!("{other:?}")),
+        }
+
+        // Client fields (if present)
+        if let Some(c) = node.client.as_ref() {
+            disable_tls_checkbox.set_value(c.disable_tls.unwrap_or(false));
+            client_id_input.set_value(c.client_id.as_deref().unwrap_or(""));
+            server_host_input.set_value(&c.server_host);
+            server_port_input.set_value(c.server_port as i32);
+            server_domain_input.set_value(c.server_domain.as_deref().unwrap_or(""));
+            ca_file_input.set_value(c.cafile.as_deref().unwrap_or(""));
+            dangerous_checkbox.set_value(c.dangerous_mode.unwrap_or(false));
+        } else {
+            // Defaults when client is None
+            disable_tls_checkbox.set_value(false);
+            client_id_input.set_value("");
+            server_host_input.set_value("");
+            server_port_input.set_value(443);
+            server_domain_input.set_value("");
+            ca_file_input.set_value("");
+            dangerous_checkbox.set_value(false);
+        }
     }
 
     let result = dialog.show_modal();
     log::info!("Details dialog returned: {}", result);
 
     let result = if result == ID_OK {
-        // Collect values into ServerNode
+        // Collect values into ServerNode (overtls::Config)
         let remarks = {
             let s = remarks_input.get_value();
             let t = s.trim().to_string();
@@ -180,17 +199,19 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
             if t.is_empty() { None } else { Some(t) }
         };
         let dangerous_mode = if dangerous_checkbox.get_value() { Some(true) } else { None };
-
+        let mut client = ClientConfig::default();
+        client.client_id = client_id;
+        client.server_host = server_host;
+        client.server_port = server_port;
+        client.server_domain = server_domain;
+        client.cafile = ca_file;
+        client.disable_tls = disable_tls;
+        client.dangerous_mode = dangerous_mode;
         let node = ServerNode {
             remarks,
-            tunnel_path,
-            disable_tls,
-            client_id,
-            server_host,
-            server_port,
-            server_domain,
-            ca_file,
-            dangerous_mode,
+            tunnel_path: TunnelPath::Single(tunnel_path),
+            client: Some(client),
+            ..Default::default()
         };
         Some(node)
     } else {

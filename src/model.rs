@@ -1,12 +1,13 @@
-use crate::server_node::ServerNode;
+use crate::ServerNode;
+use overtls::TunnelPath;
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
-pub type ServerRc = Rc<RefCell<ServerNode>>;
+pub type ServerNodeRc = Rc<RefCell<ServerNode>>;
 
 #[derive(Default, Debug, Clone)]
 pub struct ServerList {
-    pub nodes: Vec<ServerRc>,
+    pub nodes: Vec<ServerNodeRc>,
 }
 
 bitflags::bitflags! {
@@ -27,16 +28,6 @@ pub struct NodeFields : u32 {
 /// Build a CustomDataViewTreeModel that exposes ServerList as a flat list under a virtual root.
 /// - Root (None) is a container
 /// - Each ServerNode is a leaf item
-///   Columns (suggested):
-///   0: Remarks (falls back to Host when empty)
-///   1: Tunnel Path
-///   2: Client ID
-///   3: Server Host
-///   4: Server Port
-///   5: Server Domain
-///   6: CA File/Content
-///   7: TLS ("TLS"/"Plain", derived from `disable_tls`)
-///   8: Dangerous ("Yes"/"No")
 pub fn create_server_tree_model(data: Rc<RefCell<ServerList>>) -> CustomDataViewTreeModel {
     CustomDataViewTreeModel::new(
         data,
@@ -65,15 +56,20 @@ fn get_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
     fn render(node: &ServerNode, col: NodeFields) -> Variant {
         match col {
             NodeFields::Remarks => Variant::from_string(node.remarks.clone().unwrap_or_default()),
-            NodeFields::TunnelPath => Variant::from_string(node.tunnel_path.clone()),
-            NodeFields::ClientID => Variant::from_string(node.client_id.clone().unwrap_or_default()),
-            NodeFields::ServerHost => Variant::from_string(node.server_host.clone()),
+            NodeFields::TunnelPath => Variant::from_string(match &node.tunnel_path {
+                TunnelPath::Single(s) => s.clone(),
+                other => format!("{other:?}"),
+            }),
+            NodeFields::ClientID => Variant::from_string(node.client.as_ref().and_then(|c| c.client_id.clone()).unwrap_or_default()),
+            NodeFields::ServerHost => Variant::from_string(node.client.as_ref().map(|c| c.server_host.clone()).unwrap_or_default()),
             // DataViewTextRenderer expects a string; display port as string
-            NodeFields::ServerPort => Variant::from_string(node.server_port.to_string()),
-            NodeFields::ServerDomain => Variant::from_string(node.server_domain.clone().unwrap_or_default()),
-            NodeFields::CAFile => Variant::from_string(node.ca_file.clone().unwrap_or_default()),
-            NodeFields::DisableTLS => Variant::from_bool(node.disable_tls.unwrap_or(false)),
-            NodeFields::DangerousMode => Variant::from_bool(node.dangerous_mode.unwrap_or(false)),
+            NodeFields::ServerPort => Variant::from_string(node.client.as_ref().map(|c| c.server_port.to_string()).unwrap_or_default()),
+            NodeFields::ServerDomain => {
+                Variant::from_string(node.client.as_ref().and_then(|c| c.server_domain.clone()).unwrap_or_default())
+            }
+            NodeFields::CAFile => Variant::from_string(node.client.as_ref().and_then(|c| c.cafile.clone()).unwrap_or_default()),
+            NodeFields::DisableTLS => Variant::from_bool(node.client.as_ref().and_then(|c| c.disable_tls).unwrap_or(false)),
+            NodeFields::DangerousMode => Variant::from_bool(node.client.as_ref().and_then(|c| c.dangerous_mode).unwrap_or(false)),
             _ => Variant::from_string(String::new()),
         }
     }
@@ -106,6 +102,10 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
     };
 
     let mut node = target_rc.borrow_mut();
+    if node.client.is_none() {
+        node.client = Some(Default::default());
+    }
+
     match NodeFields::from_bits_retain(col) {
         NodeFields::Remarks => {
             if let Some(s) = var.get_string() {
@@ -117,7 +117,7 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::TunnelPath => {
             if let Some(s) = var.get_string() {
-                node.tunnel_path = s;
+                node.tunnel_path = TunnelPath::Single(s);
                 true
             } else {
                 false
@@ -125,8 +125,9 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::ClientID => {
             if let Some(s) = var.get_string() {
-                let s = s.trim().to_string();
-                node.client_id = if s.is_empty() { None } else { Some(s) };
+                if let Some(c) = node.client.as_mut() {
+                    c.client_id = if s.trim().is_empty() { None } else { Some(s) };
+                }
                 true
             } else {
                 false
@@ -134,7 +135,9 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::ServerHost => {
             if let Some(s) = var.get_string() {
-                node.server_host = s;
+                if let Some(c) = node.client.as_mut() {
+                    c.server_host = s;
+                }
                 true
             } else {
                 false
@@ -143,7 +146,9 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         NodeFields::ServerPort => {
             if let Some(v) = var.get_i32() {
                 if v >= 0 && v <= u16::MAX as i32 {
-                    node.server_port = v as u16;
+                    if let Some(c) = node.client.as_mut() {
+                        c.server_port = v as u16;
+                    }
                     true
                 } else {
                     false
@@ -154,8 +159,10 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::ServerDomain => {
             if let Some(s) = var.get_string() {
-                let s = s.trim().to_string();
-                node.server_domain = if s.is_empty() { None } else { Some(s) };
+                if let Some(c) = node.client.as_mut() {
+                    let t = s.trim().to_string();
+                    c.server_domain = if t.is_empty() { None } else { Some(t) };
+                }
                 true
             } else {
                 false
@@ -163,8 +170,10 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::CAFile => {
             if let Some(s) = var.get_string() {
-                let s = s.trim().to_string();
-                node.ca_file = if s.is_empty() { None } else { Some(s) };
+                if let Some(c) = node.client.as_mut() {
+                    let t = s.trim().to_string();
+                    c.cafile = if t.is_empty() { None } else { Some(t) };
+                }
                 true
             } else {
                 false
@@ -172,8 +181,9 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::DisableTLS => {
             if let Some(b) = var.get_bool() {
-                // Store None for false to keep config concise
-                node.disable_tls = if b { Some(true) } else { None };
+                if let Some(c) = node.client.as_mut() {
+                    c.disable_tls = if b { Some(true) } else { None };
+                }
                 true
             } else {
                 false
@@ -181,7 +191,9 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::DangerousMode => {
             if let Some(b) = var.get_bool() {
-                node.dangerous_mode = if b { Some(true) } else { None };
+                if let Some(c) = node.client.as_mut() {
+                    c.dangerous_mode = if b { Some(true) } else { None };
+                }
                 true
             } else {
                 false
@@ -194,33 +206,72 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
 fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, col: u32, asc: bool) -> i32 {
     let ord = match NodeFields::from_bits_retain(col) {
         NodeFields::Remarks => {
-            let la = a.remarks.as_deref().unwrap_or(&a.server_host).to_lowercase();
-            let lb = b.remarks.as_deref().unwrap_or(&b.server_host).to_lowercase();
+            let fa = a.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("");
+            let fb = b.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("");
+            let la = a.remarks.as_deref().unwrap_or(fa).to_lowercase();
+            let lb = b.remarks.as_deref().unwrap_or(fb).to_lowercase();
             la.cmp(&lb)
         }
-        NodeFields::TunnelPath => a.tunnel_path.to_lowercase().cmp(&b.tunnel_path.to_lowercase()),
+        NodeFields::TunnelPath => {
+            let sa = match &a.tunnel_path {
+                TunnelPath::Single(s) => s,
+                _ => &"".to_string(),
+            };
+            let sb = match &b.tunnel_path {
+                TunnelPath::Single(s) => s,
+                _ => &"".to_string(),
+            };
+            sa.to_lowercase().cmp(&sb.to_lowercase())
+        }
         NodeFields::ClientID => a
-            .client_id
-            .as_deref()
+            .client
+            .as_ref()
+            .and_then(|c| c.client_id.as_deref())
             .unwrap_or("")
             .to_lowercase()
-            .cmp(&b.client_id.as_deref().unwrap_or("").to_lowercase()),
-        NodeFields::ServerHost => a.server_host.to_lowercase().cmp(&b.server_host.to_lowercase()),
-        NodeFields::ServerPort => a.server_port.cmp(&b.server_port),
+            .cmp(&b.client.as_ref().and_then(|c| c.client_id.as_deref()).unwrap_or("").to_lowercase()),
+        NodeFields::ServerHost => a
+            .client
+            .as_ref()
+            .map(|c| c.server_host.to_lowercase())
+            .unwrap_or_default()
+            .cmp(&b.client.as_ref().map(|c| c.server_host.to_lowercase()).unwrap_or_default()),
+        NodeFields::ServerPort => a
+            .client
+            .as_ref()
+            .map(|c| c.server_port)
+            .unwrap_or(0)
+            .cmp(&b.client.as_ref().map(|c| c.server_port).unwrap_or(0)),
         NodeFields::ServerDomain => a
-            .server_domain
-            .as_deref()
+            .client
+            .as_ref()
+            .and_then(|c| c.server_domain.as_deref())
             .unwrap_or("")
             .to_lowercase()
-            .cmp(&b.server_domain.as_deref().unwrap_or("").to_lowercase()),
+            .cmp(
+                &b.client
+                    .as_ref()
+                    .and_then(|c| c.server_domain.as_deref())
+                    .unwrap_or("")
+                    .to_lowercase(),
+            ),
         NodeFields::CAFile => a
-            .ca_file
-            .as_deref()
+            .client
+            .as_ref()
+            .and_then(|c| c.cafile.as_deref())
             .unwrap_or("")
             .to_lowercase()
-            .cmp(&b.ca_file.as_deref().unwrap_or("").to_lowercase()),
-        NodeFields::DisableTLS => a.disable_tls.cmp(&b.disable_tls),
-        NodeFields::DangerousMode => a.dangerous_mode.cmp(&b.dangerous_mode),
+            .cmp(&b.client.as_ref().and_then(|c| c.cafile.as_deref()).unwrap_or("").to_lowercase()),
+        NodeFields::DisableTLS => a
+            .client
+            .as_ref()
+            .and_then(|c| c.disable_tls)
+            .cmp(&b.client.as_ref().and_then(|c| c.disable_tls)),
+        NodeFields::DangerousMode => a
+            .client
+            .as_ref()
+            .and_then(|c| c.dangerous_mode)
+            .cmp(&b.client.as_ref().and_then(|c| c.dangerous_mode)),
         _ => std::cmp::Ordering::Equal,
     };
     let v = match ord {
@@ -232,7 +283,7 @@ fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, c
 }
 
 /// Resolve target Rc<RefCell<ServerNode>> from raw pointer.
-pub fn find_node_via_raw_ptr(list: &Rc<RefCell<ServerList>>, needle: *const ServerNode) -> Option<ServerRc> {
+pub fn find_node_via_raw_ptr(list: &Rc<RefCell<ServerList>>, needle: *const ServerNode) -> Option<ServerNodeRc> {
     let list_ref = list.borrow();
     for rc in list_ref.nodes.iter() {
         let ptr: *const ServerNode = &*rc.borrow();

@@ -1,7 +1,7 @@
 use wxdragon::prelude::*;
 
 use crate::selection_ctx;
-use crate::{MenuId, about_dlg, details_dlg, model::ServerList, server_node::ServerNode, settings_dlg, show_qrcode_dlg};
+use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, settings_dlg, show_qrcode_dlg};
 use std::{cell::RefCell, rc::Rc};
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.

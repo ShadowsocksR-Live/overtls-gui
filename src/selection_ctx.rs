@@ -1,6 +1,5 @@
+use crate::ServerNode;
 use std::{cell::RefCell, rc::Weak};
-
-use crate::server_node::ServerNode;
 
 thread_local! {
     // Store a weak reference to the node in the model to avoid copying large data
