@@ -106,7 +106,12 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
         }
         x if x == i32::from(MenuId::ShowQrCode) => {
             log::info!("Menu/Toolbar: Show QR Code clicked!");
-            show_qrcode_dlg::show_qrcode_dlg(frame);
+            if let Some(weak) = selection_ctx::get_pending_details()
+                && let Some(rc) = weak.upgrade()
+            {
+                let b = rc.borrow();
+                show_qrcode_dlg::show_qrcode_dlg(frame, &b);
+            }
         }
         _ => {
             log::warn!("Unhandled Menu ID: {id}");

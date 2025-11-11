@@ -1,12 +1,18 @@
+use crate::ServerNode;
 use wxdragon::prelude::*;
 
 use crate::settings::{MAIN_ICON, center_rect, create_bitmap_from_memory};
 
-pub fn show_qrcode_dlg(parent: &dyn WxWidget) {
+pub fn show_qrcode_dlg(parent: &dyn WxWidget, node: &ServerNode) {
     let (w, h) = (320, 360);
     let (x, y) = center_rect(parent, w, h);
 
-    let dialog = Dialog::builder(parent, "QR Code of node - 'ot-0'")
+    let title = node
+        .remarks
+        .as_deref()
+        .unwrap_or(node.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("Unnamed"));
+
+    let dialog = Dialog::builder(parent, &format!("QR Code of node - \"{title}\""))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_position(x, y)
         .with_size(w, h)
@@ -15,6 +21,8 @@ pub fn show_qrcode_dlg(parent: &dyn WxWidget) {
     let panel = Panel::builder(&dialog).build();
 
     let bmp = create_bitmap_from_memory(MAIN_ICON, Some((200, 200))).unwrap_or_else(|_| Bitmap::new(200, 200).unwrap());
+    dialog.set_icon(&bmp);
+
     let bmp_ctrl = StaticBitmap::builder(&panel)
         .with_bitmap(Some(bmp))
         .with_size(Size::new(200, 200))
@@ -41,4 +49,5 @@ pub fn show_qrcode_dlg(parent: &dyn WxWidget) {
 
     let result = dialog.show_modal();
     log::info!("Show QRCode dialog returned: {}", result);
+    dialog.destroy();
 }

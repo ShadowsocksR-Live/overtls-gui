@@ -1,5 +1,5 @@
-use crate::ServerNode;
-use crate::settings::center_rect;
+use crate::settings::{ICON_SIZE, MAIN_ICON, center_rect};
+use crate::{ServerNode, settings::create_bitmap_from_memory};
 use overtls::{ClientConfig, TunnelPath};
 use wxdragon::prelude::*;
 
@@ -10,11 +10,25 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
     let (w, h) = (600, 400);
     let (x, y) = center_rect(parent, w, h);
 
-    let dialog = Dialog::builder(parent, "Node details of 'ot-0'")
+    let title = if let Some(n) = node_opt {
+        format!(
+            "Node details of \"{}\"",
+            n.remarks
+                .as_deref()
+                .unwrap_or(n.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("Unnamed"))
+        )
+    } else {
+        "New Node Details".to_string()
+    };
+
+    let dialog = Dialog::builder(parent, &title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_position(x, y)
         .with_size(w, h)
         .build();
+
+    let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((ICON_SIZE, ICON_SIZE))).unwrap();
+    dialog.set_icon(&icon_bitmap);
 
     let left_width = 140;
     let right_width = w - left_width - 10;
