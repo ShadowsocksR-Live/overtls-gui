@@ -47,6 +47,8 @@ pub struct Config {
     pub window: Option<WindowConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_opened_dir: Option<std::path::PathBuf>,
 }
 
 pub(crate) const WIDGET_MARGIN: i32 = 2;
@@ -62,11 +64,24 @@ impl Config {
             .unwrap_or(Config {
                 window: Some(WindowConfig::default()),
                 servers: None,
+                last_opened_dir: None,
             })
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) {
         let _ = std::fs::write(path, serde_json::to_string_pretty(self).unwrap());
+    }
+
+    pub fn get_last_opened_dir(&self) -> std::path::PathBuf {
+        if let Some(dir) = &self.last_opened_dir {
+            std::path::PathBuf::from(dir)
+        } else {
+            dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
+        }
+    }
+
+    pub fn set_last_opened_dir<P: AsRef<Path>>(&mut self, path: P) {
+        self.last_opened_dir = Some(path.as_ref().to_path_buf());
     }
 }
 
