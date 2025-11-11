@@ -24,6 +24,13 @@ pub struct NodeFields : u32 {
 }
 }
 
+pub fn node_title(node: &ServerNode) -> String {
+    node.remarks
+        .as_deref()
+        .unwrap_or(node.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("Unnamed"))
+        .to_string()
+}
+
 /// Build a CustomDataViewTreeModel that exposes ServerList as a flat list under a virtual root.
 /// - Root (None) is a container
 /// - Each ServerNode is a leaf item

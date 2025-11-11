@@ -76,6 +76,20 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             log::info!("Menu/Toolbar: Delete clicked!");
             if let Some(weak) = selection_ctx::get_pending_details() {
                 if let Some(rc) = weak.upgrade() {
+                    let title = crate::model::node_title(&*rc.borrow());
+                    let res = MessageDialog::builder(
+                        parent,
+                        &format!("Do you really want to delete the selected node: \"{title}\"?"),
+                        "Confirm Deletion",
+                    )
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconWarning)
+                    .build()
+                    .show_modal();
+                    if res != wxdragon::id::ID_OK {
+                        log::info!("Deletion cancelled by user.");
+                        return;
+                    }
+
                     // Capture raw pointer for model notification before removal
                     let child_ptr: *const ServerNode = {
                         let b = rc.borrow();

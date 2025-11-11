@@ -193,7 +193,7 @@ fn main() {
             .append_item(MenuId::ExportNode.into(), "Export Node", "Export node")
             .append_item(MenuId::ShowQrCode.into(), "Show QR Code", "Show QR code for node")
             .append_separator()
-            .append_item(MenuId::Delete.into(), "Delete", "Delete node")
+            .append_item(MenuId::Delete.into(), "Delete\tDel", "Delete node")
             .append_separator()
             .append_item(MenuId::Copy.into(), "Copy\tCtrl+C", "Copy node")
             .append_item(MenuId::Paste.into(), "Paste\tCtrl+V", "Paste node")
