@@ -110,10 +110,86 @@ pub fn create_data_view_panel(parent: &Window, model: &CustomDataViewTreeModel, 
         selection_ctx::set_pending_details(weak_opt);
     });
 
+    enable_dataview_dnd(&dataview, model);
+
     // Layout
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add(&dataview, 1, SizerFlag::Expand | SizerFlag::All, WIDGET_MARGIN);
     panel.set_sizer(sizer, true);
 
     panel
+}
+
+// Enable file drag-and-drop on the DataViewCtrl itself.
+fn enable_dataview_dnd(dataview: &DataViewCtrl, model: &CustomDataViewTreeModel) {
+    let model_for_dnd = model.clone();
+    FileDropTarget::builder(dataview)
+        .with_on_enter(|_x, _y, _def_result| {
+            log::info!("DataView DnD: OnEnter at ({_x}, {_y})");
+            DragResult::Copy
+        })
+        .with_on_drag_over(|_x, _y, def_result| {
+            // log::trace!("DataView DnD: OnDragOver at ({_x}, {_y})");
+            def_result
+        })
+        .with_on_leave(|| {
+            log::info!("DataView DnD: OnLeave");
+        })
+        .with_on_drop(|_x, _y| {
+            log::info!("DataView DnD: OnDrop at ({_x}, {_y})");
+            true
+        })
+        .with_on_data(|_x, _y, _def_result| {
+            log::info!("DataView DnD: OnData at ({_x}, {_y})");
+            DragResult::Copy
+        })
+        .with_on_drop_files(move |files, _x, _y| {
+            log::info!("DataView DnD: dropped {} files at ({}, {})", files.len(), _x, _y);
+            for (i, file) in files.iter().enumerate() {
+                log::info!("  File {}: {}", i + 1, file);
+            }
+
+            // Parse each file into a ServerNode; silently log failures.
+            let mut parsed_nodes: Vec<Rc<RefCell<ServerNode>>> = Vec::new();
+            for path in &files {
+                match ServerNode::from_config_file(path) {
+                    Ok(node) => {
+                        parsed_nodes.push(Rc::new(RefCell::new(node)));
+                    }
+                    Err(err) => {
+                        log::warn!("DnD import: failed to parse '{path}' as ServerNode: {err}");
+                    }
+                }
+            }
+
+            if parsed_nodes.is_empty() {
+                log::info!("DnD import: no valid ServerNode parsed; nothing to insert.");
+                return true;
+            }
+
+            // Insert all at once into the model's underlying data and notify view.
+            if let Some(added_ids) = model_for_dnd.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<*const ServerNode>>(|data| {
+                let mut data = data.borrow_mut();
+                let mut ids: Vec<*const ServerNode> = Vec::with_capacity(parsed_nodes.len());
+                for rc in parsed_nodes.into_iter() {
+                    // Obtain a raw pointer to the inner ServerNode for identification
+                    let ptr: *const ServerNode = {
+                        let b = rc.borrow();
+                        &*b as *const _
+                    };
+                    // Then push into the list so the Rc lives in the model
+                    data.nodes.push(rc);
+                    ids.push(ptr);
+                }
+                ids
+            }) {
+                // Notify that items were added under the virtual root (None)
+                log::info!("DnD import: notifying items_added for {} item(s)", added_ids.len());
+                // Safety: CustomDataViewTreeModel tracks items by pointer IDs per model contract
+                model_for_dnd.items_added::<ServerNode>(None, added_ids.as_slice());
+            }
+
+            true
+        })
+        .build();
 }
