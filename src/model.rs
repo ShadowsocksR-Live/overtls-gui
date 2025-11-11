@@ -64,7 +64,7 @@ fn get_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
             NodeFields::Remarks => Variant::from_string(node.remarks.clone().unwrap_or_default()),
             NodeFields::TunnelPath => Variant::from_string(match &node.tunnel_path {
                 overtls::TunnelPath::Single(s) => s.clone(),
-                overtls::TunnelPath::Multiple(v) => v.get(0).cloned().unwrap_or_default(),
+                overtls::TunnelPath::Multiple(v) => v.first().cloned().unwrap_or_default(),
             }),
             NodeFields::ClientID => Variant::from_string(node.client.as_ref().and_then(|c| c.client_id.clone()).unwrap_or_default()),
             NodeFields::ServerHost => Variant::from_string(node.client.as_ref().map(|c| c.server_host.clone()).unwrap_or_default()),
@@ -221,11 +221,11 @@ fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, c
         NodeFields::TunnelPath => {
             let sa: &str = match &a.tunnel_path {
                 overtls::TunnelPath::Single(s) => s.as_str(),
-                overtls::TunnelPath::Multiple(v) => v.get(0).map(|s| s.as_str()).unwrap_or(""),
+                overtls::TunnelPath::Multiple(v) => v.first().map(|s| s.as_str()).unwrap_or(""),
             };
             let sb: &str = match &b.tunnel_path {
                 overtls::TunnelPath::Single(s) => s.as_str(),
-                overtls::TunnelPath::Multiple(v) => v.get(0).map(|s| s.as_str()).unwrap_or(""),
+                overtls::TunnelPath::Multiple(v) => v.first().map(|s| s.as_str()).unwrap_or(""),
             };
             sa.to_lowercase().cmp(&sb.to_lowercase())
         }

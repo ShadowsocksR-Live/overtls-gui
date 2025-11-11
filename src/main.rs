@@ -238,9 +238,10 @@ fn main() {
 
         let frame_for_menu = frame.clone();
         let model_for_menu = model.clone();
+        let cfg_for_menu = cfg_clone.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
-            menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id);
+            menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id, &cfg_for_menu);
         });
 
         let frame_clone = frame.clone();

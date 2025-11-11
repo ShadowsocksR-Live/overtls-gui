@@ -154,7 +154,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         // Tunnel Path
         match &node.tunnel_path {
             overtls::TunnelPath::Single(s) => tunnel_input.set_value(s),
-            overtls::TunnelPath::Multiple(v) => tunnel_input.set_value(&v.get(0).cloned().unwrap_or_default()),
+            overtls::TunnelPath::Multiple(v) => tunnel_input.set_value(&v.first().cloned().unwrap_or_default()),
         }
 
         // Client fields (if present)
