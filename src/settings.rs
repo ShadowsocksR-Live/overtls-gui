@@ -46,9 +46,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub servers: Option<Vec<ServerNode>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_opened_dir: Option<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub servers: Option<Vec<ServerNode>>,
 }
 
 pub(crate) const WIDGET_MARGIN: i32 = 2;

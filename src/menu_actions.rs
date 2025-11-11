@@ -36,10 +36,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                     };
                     if let Some(updated_node) = updated {
                         // Commit the changes back to the model
-                        {
-                            let mut m = rc.borrow_mut();
-                            *m = updated_node;
-                        }
+                        *rc.borrow_mut() = updated_node;
                         // Notify the view that this item changed
                         let ptr: *const ServerNode = {
                             let b = rc.borrow();
