@@ -1,12 +1,12 @@
-use wxdragon::prelude::*;
-
 use crate::selection_ctx;
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, settings_dlg, show_qrcode_dlg};
+use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
+use wxdragon::prelude::*;
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
-pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i32) {
+pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32) {
     let Ok(menu_id) = MenuId::try_from(id) else {
         log::warn!("Received unknown Menu ID: {id}");
         return;
@@ -14,14 +14,14 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
     match menu_id {
         MenuId::Quit => {
             log::info!("Menu/Toolbar: Quit clicked!");
-            frame.close(true);
+            parent.close(true);
         }
         MenuId::About => {
-            about_dlg::show_about_dialog(frame);
+            about_dlg::show_about_dialog(parent);
         }
         MenuId::Settings => {
             log::info!("Menu/Toolbar: Settings clicked!");
-            settings_dlg::settings_dlg(frame);
+            settings_dlg::settings_dlg(parent);
         }
         MenuId::ViewDetails => {
             log::info!("Menu/Toolbar: View Details clicked!");
@@ -31,7 +31,7 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                     // Scope the immutable borrow just for prefill usage
                     let updated = {
                         let init_borrow = rc.borrow();
-                        details_dlg::details_dlg(frame, Some(&*init_borrow))
+                        details_dlg::details_dlg(parent, Some(&*init_borrow))
                     };
                     if let Some(updated_node) = updated {
                         // Commit the changes back to the model
@@ -48,16 +48,16 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                     }
                 } else {
                     // Node no longer exists; open dialog without prefill (no commit target)
-                    let _ = details_dlg::details_dlg(frame, None);
+                    let _ = details_dlg::details_dlg(parent, None);
                 }
             } else {
                 // No pending selection; treat as read-only view (or nothing to edit)
-                let _ = details_dlg::details_dlg(frame, None);
+                let _ = details_dlg::details_dlg(parent, None);
             }
         }
         MenuId::New => {
             log::info!("Menu/Toolbar: New clicked!");
-            if let Some(node) = details_dlg::details_dlg(frame, None) {
+            if let Some(node) = details_dlg::details_dlg(parent, None) {
                 let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
                     let rc = Rc::new(RefCell::new(node));
                     let ptr: *const ServerNode = {
@@ -114,11 +114,40 @@ pub fn handle_menu_command(frame: &Frame, model: &CustomDataViewTreeModel, id: i
                 && let Some(rc) = weak.upgrade()
             {
                 let b = rc.borrow();
-                if let Err(e) = show_qrcode_dlg::show_qrcode_dlg(frame, &b) {
+                if let Err(e) = show_qrcode_dlg::show_qrcode_dlg(parent, &b) {
                     log::error!("Failed to show QR code dialog: {e}");
                 }
             }
         }
+        MenuId::ExportNode => {
+            log::info!("Menu/Toolbar: Export Node clicked!");
+            if let Some(weak) = selection_ctx::get_pending_details()
+                && let Some(rc) = weak.upgrade()
+            {
+                let node = rc.borrow();
+                if let Ok(json_str) = serde_json::to_string_pretty(&*node) {
+                    let root = dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).to_string_lossy().to_string();
+                    let dialog = FileDialog::builder(parent)
+                        .with_message("Save as")
+                        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+                        .with_default_dir(&root)
+                        .with_default_file("exported_node.json")
+                        .with_wildcard("JSON files (*.json)|*.json|All files (*.*)|*.*")
+                        .build();
+                    if dialog.show_modal() == wxdragon::id::ID_OK {
+                        if let Some(path_option) = dialog.get_path() {
+                            if std::fs::write(&path_option, json_str).is_ok() {
+                                log::debug!("Node exported to: {}", path_option);
+                            }
+                        }
+                    } else {
+                        log::info!("File Dialog: Save cancelled.");
+                    }
+                    dialog.destroy();
+                }
+            }
+        }
+
         _ => {
             log::warn!("Unhandled Menu ID: {menu_id:?}");
         }
