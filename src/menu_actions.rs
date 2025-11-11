@@ -197,8 +197,113 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             dialog.destroy();
         }
 
+        MenuId::Copy => {
+            log::info!("Menu/Toolbar: Copy clicked!");
+            if let Some(weak) = selection_ctx::get_pending_details()
+                && let Some(rc) = weak.upgrade()
+            {
+                let node = rc.borrow();
+                if let Ok(text) = &node.generate_ssr_url() {
+                    if Clipboard::get().set_text(text) {
+                        log::info!("Node copied to clipboard.");
+                    } else {
+                        log::error!("Failed to copy node to clipboard.");
+                    }
+                }
+            }
+        }
+
+        MenuId::Paste => {
+            log::info!("Menu/Toolbar: Paste clicked!");
+            if let Ok(node) = paste() {
+                let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, *const ServerNode>(|data| {
+                    let rc = Rc::new(RefCell::new(node));
+                    let ptr: *const ServerNode = {
+                        let b = rc.borrow();
+                        &*b as *const _
+                    };
+                    data.borrow_mut().nodes.push(rc);
+                    ptr
+                });
+                if let Some(ptr) = added {
+                    model.item_added::<ServerNode>(None, ptr);
+                }
+            } else {
+                log::error!("Failed to paste node.");
+            }
+        }
+
         _ => {
             log::warn!("Unhandled Menu ID: {menu_id:?}");
         }
     }
+}
+
+pub fn paste() -> std::io::Result<ServerNode> {
+    use std::io::{Error, ErrorKind::InvalidData};
+
+    let clipboard = Clipboard::get();
+
+    // Try to get text from clipboard
+    if let Some(text) = clipboard.get_text() {
+        log::trace!("Pasted text: {text}");
+        // Try to parse the text as a config
+        return ServerNode::from_json_str(&text)
+            .or_else(|_| ServerNode::from_ssr_url(&text))
+            .map_err(|e| Error::new(InvalidData, format!("Some unknown error occurred: {e}")));
+    }
+
+    // Check if bitmap format is supported
+    if !clipboard.is_format_supported(DataFormat::BITMAP) {
+        println!("No bitmap on clipboard");
+        return Err(Error::new(InvalidData, "No suitable data found in clipboard"));
+    }
+
+    // Create a bitmap data object to receive the data
+    let bitmap_data = BitmapDataObject::new(&Bitmap::new(1, 1).unwrap());
+
+    // Get the data from clipboard
+    if let Some(_locker) = clipboard.locker() {
+        if clipboard.get_data(&bitmap_data) {
+            if let Some(bmp) = bitmap_data.get_bitmap() {
+                let img = image::RgbaImage::from_raw(bmp.get_width() as u32, bmp.get_height() as u32, bmp.get_rgba_data().unwrap())
+                    .ok_or_else(|| std::io::Error::other("Failed to convert clipboard image"))?;
+
+                let dyn_img = image::DynamicImage::ImageRgba8(img);
+
+                return server_node_from_image(&dyn_img);
+            }
+        } else {
+            return Err(Error::new(InvalidData, "Failed to get bitmap from clipboard"));
+        }
+    }
+
+    Err(Error::new(InvalidData, "No suitable data found in clipboard"))
+}
+
+fn server_node_from_image(dyn_img: &image::DynamicImage) -> std::io::Result<ServerNode> {
+    use std::io::{Error, ErrorKind::InvalidData};
+
+    // QR parsing
+    let qr_str = qr_decode(dyn_img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
+
+    // convert to overtls config
+    ServerNode::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
+}
+
+fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
+    use std::io::{Error, ErrorKind::InvalidData};
+    let img = img.to_luma8();
+    // Prepare for detection
+    let mut img = rqrr::PreparedImage::prepare(img);
+    // Search for grids, without decoding
+    let grids = img.detect_grids();
+    // Decode the grid
+    let (meta, content) = grids
+        .first()
+        .ok_or_else(|| Error::new(InvalidData, "Failed to get QR code grid"))?
+        .decode()
+        .map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
+    log::trace!("QR code meta: {:?}", meta);
+    Ok(content)
 }
