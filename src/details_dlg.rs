@@ -1,6 +1,5 @@
 use crate::settings::{ICON_SIZE, MAIN_ICON, center_rect};
 use crate::{ServerNode, settings::create_bitmap_from_memory};
-use overtls::{ClientConfig, TunnelPath};
 use wxdragon::prelude::*;
 
 /// Show details dialog.
@@ -154,8 +153,8 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
 
         // Tunnel Path
         match &node.tunnel_path {
-            TunnelPath::Single(s) => tunnel_input.set_value(s),
-            other => tunnel_input.set_value(&format!("{other:?}")),
+            overtls::TunnelPath::Single(s) => tunnel_input.set_value(s),
+            overtls::TunnelPath::Multiple(v) => tunnel_input.set_value(&v.get(0).cloned().unwrap_or_default()),
         }
 
         // Client fields (if present)
@@ -213,7 +212,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
             if t.is_empty() { None } else { Some(t) }
         };
         let dangerous_mode = if dangerous_checkbox.get_value() { Some(true) } else { None };
-        let mut client = ClientConfig::default();
+        let mut client = overtls::ClientConfig::default();
         client.client_id = client_id;
         client.server_host = server_host;
         client.server_port = server_port;
@@ -223,7 +222,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         client.dangerous_mode = dangerous_mode;
         let node = ServerNode {
             remarks,
-            tunnel_path: TunnelPath::Single(tunnel_path),
+            tunnel_path: overtls::TunnelPath::Single(tunnel_path),
             client: Some(client),
             ..Default::default()
         };

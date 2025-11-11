@@ -1,5 +1,4 @@
 use crate::ServerNode;
-use overtls::TunnelPath;
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
@@ -57,8 +56,8 @@ fn get_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         match col {
             NodeFields::Remarks => Variant::from_string(node.remarks.clone().unwrap_or_default()),
             NodeFields::TunnelPath => Variant::from_string(match &node.tunnel_path {
-                TunnelPath::Single(s) => s.clone(),
-                other => format!("{other:?}"),
+                overtls::TunnelPath::Single(s) => s.clone(),
+                overtls::TunnelPath::Multiple(v) => v.get(0).cloned().unwrap_or_default(),
             }),
             NodeFields::ClientID => Variant::from_string(node.client.as_ref().and_then(|c| c.client_id.clone()).unwrap_or_default()),
             NodeFields::ServerHost => Variant::from_string(node.client.as_ref().map(|c| c.server_host.clone()).unwrap_or_default()),
@@ -117,7 +116,7 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         }
         NodeFields::TunnelPath => {
             if let Some(s) = var.get_string() {
-                node.tunnel_path = TunnelPath::Single(s);
+                node.tunnel_path = overtls::TunnelPath::Single(s);
                 true
             } else {
                 false
@@ -213,13 +212,13 @@ fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, c
             la.cmp(&lb)
         }
         NodeFields::TunnelPath => {
-            let sa = match &a.tunnel_path {
-                TunnelPath::Single(s) => s,
-                _ => &"".to_string(),
+            let sa: &str = match &a.tunnel_path {
+                overtls::TunnelPath::Single(s) => s.as_str(),
+                overtls::TunnelPath::Multiple(v) => v.get(0).map(|s| s.as_str()).unwrap_or(""),
             };
-            let sb = match &b.tunnel_path {
-                TunnelPath::Single(s) => s,
-                _ => &"".to_string(),
+            let sb: &str = match &b.tunnel_path {
+                overtls::TunnelPath::Single(s) => s.as_str(),
+                overtls::TunnelPath::Multiple(v) => v.get(0).map(|s| s.as_str()).unwrap_or(""),
             };
             sa.to_lowercase().cmp(&sb.to_lowercase())
         }

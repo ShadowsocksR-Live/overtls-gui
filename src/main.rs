@@ -53,25 +53,24 @@ fn main() {
 
         // Demo seed data: when servers key is missing (None), add two example nodes
         if nodes.is_none() {
-            use overtls::{ClientConfig, TunnelPath};
-            let mut seed1_client = ClientConfig::default();
+            let mut seed1_client = overtls::ClientConfig::default();
             seed1_client.client_id = Some("client-001".to_string());
             seed1_client.server_host = "example.com".to_string();
             seed1_client.server_port = 443;
             seed1_client.server_domain = Some("example.com".to_string());
             let seed1 = ServerNode {
                 remarks: Some("Sample Server 1".to_string()),
-                tunnel_path: TunnelPath::Single("/".to_string()),
+                tunnel_path: overtls::TunnelPath::Single("/".to_string()),
                 client: Some(seed1_client),
                 ..Default::default()
             };
-            let mut seed2_client = ClientConfig::default();
+            let mut seed2_client = overtls::ClientConfig::default();
             seed2_client.server_host = "127.0.0.1".to_string();
             seed2_client.server_port = 8080;
             seed2_client.disable_tls = Some(true); // indicate TLS disabled
             let seed2 = ServerNode {
                 remarks: Some("Local Dev".to_string()),
-                tunnel_path: TunnelPath::Single("/dev".to_string()),
+                tunnel_path: overtls::TunnelPath::Single("/dev".to_string()),
                 client: Some(seed2_client),
                 ..Default::default()
             };
