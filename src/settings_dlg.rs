@@ -1,7 +1,7 @@
 #![allow(unused)]
 
-use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory};
-use std::{cell::RefCell, rc::Rc};
+use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory, save_settings};
+use std::{cell::RefCell, rc::Rc, sync::Arc, sync::atomic::AtomicBool};
 use wxdragon::prelude::*;
 
 pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
@@ -24,8 +24,10 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     // Create Notebook for tabs
     let notebook = Notebook::builder(&panel).build();
 
+    let save_result = Arc::new(AtomicBool::new(false));
+
     // Create tab pages using separate functions
-    let common_panel = create_common_tab(&notebook, cfg);
+    let common_panel = create_common_tab(&notebook, cfg, save_result.clone());
     let overtls_panel = create_overtls_tab(&notebook, cfg);
     let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg);
     let httpproxy_panel = create_httpproxy_tab(&notebook, cfg);
@@ -54,7 +56,9 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
     let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
     let dialog_clone = dialog.clone();
+    let cfg_clone = cfg.clone();
     ok_button.on_click(move |_data| {
+        save_result.store(true, std::sync::atomic::Ordering::SeqCst);
         dialog_clone.end_modal(ID_OK);
     });
 
@@ -170,7 +174,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
     panel
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     // Simple layout: one checkbox for 'Run as administrator'
@@ -183,7 +187,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel 
 
     let run_admin_checkbox = CheckBox::builder(&panel)
         .with_label("Run as administrator (root) privileges")
-        .with_value(false)
+        .with_value(cfg.borrow().run_as_admin.unwrap_or(false))
         .build();
 
     let grid = FlexGridSizer::builder(1, 2).with_vgap(10).with_hgap(16).build();
@@ -193,6 +197,14 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
+
+    let cfg = cfg.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
+            cfg.borrow_mut().run_as_admin = if run_admin_checkbox.get_value() { Some(true) } else { None };
+        }
+    });
+
     panel
 }
 

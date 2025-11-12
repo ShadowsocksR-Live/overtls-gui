@@ -44,6 +44,8 @@ impl WindowConfig {
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_as_admin: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_opened_dir: Option<std::path::PathBuf>,
@@ -65,6 +67,7 @@ impl Config {
                 window: Some(WindowConfig::default()),
                 servers: None,
                 last_opened_dir: None,
+                run_as_admin: None,
             })
     }
 
