@@ -438,6 +438,8 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
 }
 
 fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+    let logging_settings = cfg.borrow().logging.clone().unwrap_or_default();
+
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(180, -1);
@@ -452,9 +454,15 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
+
     let global_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .global_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -465,7 +473,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let rustls_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .rustls_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -476,7 +489,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let tokio_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .tokio_tungstenite_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -487,7 +505,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let tungstenite_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .tungstenite_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -498,7 +521,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let ipstack_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .ipstack_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -509,7 +537,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let overtls_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .overtls_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -520,7 +553,12 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .build();
     let tun2proxy_choice = Choice::builder(&panel)
         .with_choices(log_levels.clone())
-        .with_selection(Some(0))
+        .with_selection(
+            logging_settings
+                .tun2proxy_log_level
+                .as_ref()
+                .and_then(|s| log_levels.iter().position(|x| x == s).map(|i| i as u32)),
+        )
         .with_size(choice_size)
         .build();
 
@@ -530,7 +568,10 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
-    let auto_scroll_checkbox = CheckBox::builder(&panel).with_value(false).with_label("Log Auto Scroll").build();
+    let auto_scroll_checkbox = CheckBox::builder(&panel)
+        .with_value(logging_settings.log_auto_scroll.unwrap_or_default())
+        .with_label("Log Auto Scroll")
+        .build();
 
     let grid = FlexGridSizer::builder(8, 2).with_vgap(10).with_hgap(16).build();
     grid.add(&global_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
@@ -553,5 +594,23 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
+
+    let cfg = cfg.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
+            let new_settings = crate::settings::LoggingSettings {
+                global_log_level: global_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                rustls_log_level: rustls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                tokio_tungstenite_log_level: tokio_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                tungstenite_log_level: tungstenite_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                ipstack_log_level: ipstack_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                overtls_log_level: overtls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+                log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
+            };
+            cfg.borrow_mut().logging = Some(new_settings);
+        }
+    });
+
     panel
 }

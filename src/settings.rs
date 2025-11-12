@@ -6,6 +6,73 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use wxdragon::prelude::*;
 
+/// Top-level application configuration.
+/// - `window`: window position/size
+/// - `servers`: a list of server nodes managed by the app
+#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_as_admin: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_opened_dir: Option<std::path::PathBuf>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub over_tls: Option<OverTlsSettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tun2proxy: Option<Tun2proxySettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_proxy: Option<HttpProxySettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logging: Option<LoggingSettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub servers: Option<Vec<ServerNode>>,
+}
+
+pub(crate) const WIDGET_MARGIN: i32 = 2;
+pub(crate) const APP_TITLE: &str = "OverTLS-GUI";
+pub(crate) const MAIN_ICON: &[u8] = include_bytes!("../assets/main.png");
+pub(crate) const ICON_SIZE: u32 = 72;
+
+impl Config {
+    pub fn load<P: AsRef<Path>>(path: P) -> Self {
+        std::fs::read_to_string(path.as_ref())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(Config {
+                window: Some(WindowConfig::default()),
+                servers: None,
+                last_opened_dir: None,
+                run_as_admin: None,
+                over_tls: None,
+                tun2proxy: None,
+                http_proxy: None,
+                logging: None,
+            })
+    }
+
+    pub fn save<P: AsRef<Path>>(&self, path: P) {
+        let _ = std::fs::write(path, serde_json::to_string_pretty(self).unwrap());
+    }
+
+    pub fn get_last_opened_dir(&self) -> std::path::PathBuf {
+        if let Some(dir) = &self.last_opened_dir {
+            std::path::PathBuf::from(dir)
+        } else {
+            dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
+        }
+    }
+
+    pub fn set_last_opened_dir<P: AsRef<Path>>(&mut self, path: P) {
+        self.last_opened_dir = Some(path.as_ref().to_path_buf());
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct WindowConfig {
     pub position: (i32, i32),
@@ -35,69 +102,6 @@ impl WindowConfig {
 
     pub fn get_size(&self) -> Size {
         Size::new(self.size.0, self.size.1)
-    }
-}
-
-/// Top-level application configuration.
-/// - `window`: window position/size
-/// - `servers`: a list of server nodes managed by the app
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
-pub struct Config {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_as_admin: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub window: Option<WindowConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_opened_dir: Option<std::path::PathBuf>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub over_tls: Option<OverTlsSettings>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tun2proxy: Option<Tun2proxySettings>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub http_proxy: Option<HttpProxySettings>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub servers: Option<Vec<ServerNode>>,
-}
-
-pub(crate) const WIDGET_MARGIN: i32 = 2;
-pub(crate) const APP_TITLE: &str = "OverTLS-GUI";
-pub(crate) const MAIN_ICON: &[u8] = include_bytes!("../assets/main.png");
-pub(crate) const ICON_SIZE: u32 = 72;
-
-impl Config {
-    pub fn load<P: AsRef<Path>>(path: P) -> Self {
-        std::fs::read_to_string(path.as_ref())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(Config {
-                window: Some(WindowConfig::default()),
-                servers: None,
-                last_opened_dir: None,
-                run_as_admin: None,
-                over_tls: None,
-                tun2proxy: None,
-                http_proxy: None,
-            })
-    }
-
-    pub fn save<P: AsRef<Path>>(&self, path: P) {
-        let _ = std::fs::write(path, serde_json::to_string_pretty(self).unwrap());
-    }
-
-    pub fn get_last_opened_dir(&self) -> std::path::PathBuf {
-        if let Some(dir) = &self.last_opened_dir {
-            std::path::PathBuf::from(dir)
-        } else {
-            dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
-        }
-    }
-
-    pub fn set_last_opened_dir<P: AsRef<Path>>(&mut self, path: P) {
-        self.last_opened_dir = Some(path.as_ref().to_path_buf());
     }
 }
 
@@ -162,6 +166,48 @@ impl Default for HttpProxySettings {
             s5_server_address_port: "127.0.0.1:1080".into(),
             username: None,
             password: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct LoggingSettings {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub global_log_level: Option<String>, // global log level: "Error", "Warn", "Info", "Debug", "Trace"
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub rustls_log_level: Option<String>, // Rustls log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tokio_tungstenite_log_level: Option<String>, // tokio_tungstenite log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tungstenite_log_level: Option<String>, // tungstenite log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ipstack_log_level: Option<String>, // ipstack log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub overtls_log_level: Option<String>, // overtls log level
+
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tun2proxy_log_level: Option<String>, // tun2proxy log level
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_auto_scroll: Option<bool>, // log auto scroll
+}
+
+impl Default for LoggingSettings {
+    fn default() -> Self {
+        LoggingSettings {
+            global_log_level: Some("Debug".to_string()),
+            rustls_log_level: Some("Debug".to_string()),
+            tokio_tungstenite_log_level: Some("Debug".to_string()),
+            tungstenite_log_level: Some("Debug".to_string()),
+            ipstack_log_level: Some("Debug".to_string()),
+            overtls_log_level: Some("Debug".to_string()),
+            tun2proxy_log_level: Some("Debug".to_string()),
+            log_auto_scroll: Some(true),
         }
     }
 }
