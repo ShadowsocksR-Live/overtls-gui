@@ -1,10 +1,8 @@
-#![allow(unused)]
-
 use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory, save_settings};
-use std::{cell::RefCell, rc::Rc, sync::Arc, sync::atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use wxdragon::prelude::*;
 
-pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
+pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     let (w, h) = (600, 400);
     let (x, y) = center_rect(frame_clone, w, h);
 
@@ -56,9 +54,9 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
     let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
     let dialog_clone = dialog.clone();
-    let cfg_clone = cfg.clone();
+    let save_result_for_ok = save_result.clone();
     ok_button.on_click(move |_data| {
-        save_result.store(true, std::sync::atomic::Ordering::SeqCst);
+        save_result_for_ok.store(true, std::sync::atomic::Ordering::SeqCst);
         dialog_clone.end_modal(ID_OK);
     });
 
@@ -71,6 +69,28 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     panel_sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignCentre | SizerFlag::All, 0);
     panel.set_sizer(panel_sizer, true);
 
+    let cfg_for_panel_destroy = cfg.clone();
+    let save_result_for_panel_destroy = save_result.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result_for_panel_destroy.load(std::sync::atomic::Ordering::SeqCst) {
+            let cfg = cfg_for_panel_destroy.clone();
+
+            wxdragon::call_after(Box::new(move || {
+                let run_as_admin = cfg.lock().unwrap().run_as_admin.unwrap_or_default();
+                log::info!("Settings panel destroyed, settings committed. Run as admin: {run_as_admin}");
+
+                if run_as_admin && !run_as::is_elevated() {
+                    // Persist the latest settings prior to restart
+                    save_settings(&cfg.lock().unwrap());
+                    if let Ok(status) = crate::restart_as_admin() {
+                        log::debug!("Restarted as admin with status code {status}, exiting current instance.");
+                        ::std::process::exit(status.code().unwrap_or_default());
+                    }
+                }
+            }));
+        }
+    });
+
     // Layout the dialog
     let dialog_sizer = BoxSizer::builder(Orientation::Vertical).build();
     dialog_sizer.add(&panel, 1, SizerFlag::Expand, 0);
@@ -78,22 +98,20 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
 
     // Show the dialog modally
     let result = dialog.show_modal();
+    dialog.destroy();
     log::info!("Dialog returned: {result}");
     if result == ID_OK {
         log::info!("Settings dialog confirmed with OK.");
     }
-
-    dialog.destroy();
-    // Dialog is automatically cleaned up when it goes out of scope
 }
 
-fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     // Label size for alignment
     let label_size = Size::new(150, -1);
 
-    let mut over_tls_settings = cfg.borrow().over_tls.clone().unwrap_or_default();
+    let mut over_tls_settings = cfg.lock().unwrap().over_tls.clone().unwrap_or_default();
 
     // Listen Host
     let host_label = StaticText::builder(&panel)
@@ -200,14 +218,14 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
             over_tls_settings.pool_max_size = pool_input.value() as usize;
             over_tls_settings.cache_dns = cache_dns_checkbox.get_value();
 
-            cfg.borrow_mut().over_tls = Some(over_tls_settings.clone());
+            cfg.lock().unwrap().over_tls = Some(over_tls_settings.clone());
         }
     });
 
     panel
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     // Simple layout: one checkbox for 'Run as administrator'
@@ -220,7 +238,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_resu
 
     let run_admin_checkbox = CheckBox::builder(&panel)
         .with_label("Run as administrator (root) privileges")
-        .with_value(cfg.borrow().run_as_admin.unwrap_or(false))
+        .with_value(cfg.lock().unwrap().run_as_admin.unwrap_or(false))
         .build();
 
     let grid = FlexGridSizer::builder(1, 2).with_vgap(10).with_hgap(16).build();
@@ -234,19 +252,19 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_resu
     let cfg = cfg.clone();
     panel.on_destroy(move |_evt| {
         if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            cfg.borrow_mut().run_as_admin = if run_admin_checkbox.get_value() { Some(true) } else { None };
+            cfg.lock().unwrap().run_as_admin = if run_admin_checkbox.get_value() { Some(true) } else { None };
         }
     });
 
     panel
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
 
-    let mut tun2proxy_settings = cfg.borrow().tun2proxy.clone().unwrap_or_default();
+    let mut tun2proxy_settings = cfg.lock().unwrap().tun2proxy.clone().unwrap_or_default();
 
     // Exit on Fatal Error
     let exit_label = StaticText::builder(&panel)
@@ -332,15 +350,15 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
                 _ => "over-tcp".to_string(),
             };
 
-            cfg.borrow_mut().tun2proxy = Some(tun2proxy_settings.clone());
+            cfg.lock().unwrap().tun2proxy = Some(tun2proxy_settings.clone());
         }
     });
 
     panel
 }
 
-fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
-    let http_proxy_settings = cfg.borrow().http_proxy.clone().unwrap_or_default();
+fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+    let http_proxy_settings = cfg.lock().unwrap().http_proxy.clone().unwrap_or_default();
 
     let panel = Panel::builder(parent).build();
 
@@ -430,15 +448,15 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
                     if val.is_empty() { None } else { Some(val) }
                 },
             };
-            cfg.borrow_mut().http_proxy = Some(new_settings);
+            cfg.lock().unwrap().http_proxy = Some(new_settings);
         }
     });
 
     panel
 }
 
-fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
-    let logging_settings = cfg.borrow().logging.clone().unwrap_or_default();
+fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+    let logging_settings = cfg.lock().unwrap().logging.clone().unwrap_or_default();
 
     let panel = Panel::builder(parent).build();
 
@@ -608,7 +626,7 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_res
                 tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
                 log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
             };
-            cfg.borrow_mut().logging = Some(new_settings);
+            cfg.lock().unwrap().logging = Some(new_settings);
         }
     });
 

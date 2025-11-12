@@ -2,12 +2,13 @@ use crate::selection_ctx;
 use crate::settings::Config;
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
-pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &Rc<RefCell<Config>>) {
+pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &Arc<Mutex<Config>>) {
     let Ok(menu_id) = MenuId::try_from(id) else {
         log::warn!("Received unknown Menu ID: {id}");
         return;
@@ -148,7 +149,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             {
                 let node = rc.borrow();
                 if let Ok(json_str) = serde_json::to_string_pretty(&*node) {
-                    let root = cfg.borrow().get_last_opened_dir().to_string_lossy().to_string();
+                    let root = cfg.lock().unwrap().get_last_opened_dir().to_string_lossy().to_string();
                     let dialog = FileDialog::builder(parent)
                         .with_message("Save as")
                         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
@@ -158,7 +159,9 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                         .build();
                     if dialog.show_modal() == wxdragon::id::ID_OK {
                         if let Some(path_option) = dialog.get_path() {
-                            cfg.borrow_mut().set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
+                            cfg.lock()
+                                .unwrap()
+                                .set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
                             if std::fs::write(&path_option, json_str).is_ok() {
                                 log::debug!("Node exported to: {}", path_option);
                             }
@@ -173,7 +176,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
 
         MenuId::ImportNodeFile => {
             log::info!("Menu/Toolbar: Import Node clicked!");
-            let root = cfg.borrow().get_last_opened_dir().to_string_lossy().to_string();
+            let root = cfg.lock().unwrap().get_last_opened_dir().to_string_lossy().to_string();
             let dialog = FileDialog::builder(parent)
                 .with_message("Select node JSON file to import")
                 .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
@@ -182,7 +185,9 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                 .build();
             if dialog.show_modal() == wxdragon::id::ID_OK {
                 if let Some(path_option) = dialog.get_path() {
-                    cfg.borrow_mut().set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
+                    cfg.lock()
+                        .unwrap()
+                        .set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
                     if let Ok(node) = ServerNode::from_config_file(&path_option) {
                         let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
                             let rc = Rc::new(RefCell::new(node));

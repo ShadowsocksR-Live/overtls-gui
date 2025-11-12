@@ -65,16 +65,26 @@ mod show_qrcode_dlg;
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
 use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 use wxdragon::prelude::*;
 
-fn main() {
+fn main() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-    let cfg = Rc::new(RefCell::new(settings::load_settings()));
+    let cfg = Arc::new(Mutex::new(settings::load_settings()));
+
+    if cfg.lock().unwrap().run_as_admin.unwrap_or_default() && !run_as::is_elevated() {
+        let status = restart_as_admin()?;
+        std::process::exit(status.code().unwrap_or_default());
+    }
+
     let cfg_clone = cfg.clone();
     let _ = wxdragon::main(move |_| {
         // Build model once from settings.servers
-        let mut nodes = cfg_clone.borrow().servers.clone();
+        let mut nodes = cfg_clone.lock().unwrap().servers.clone();
 
         // Demo seed data: when servers key is missing (None), add two example nodes
         if nodes.is_none() {
@@ -105,7 +115,7 @@ fn main() {
         let data = Rc::new(RefCell::new(ServerList { nodes }));
         let model = create_server_tree_model(data);
 
-        let win_cfg = cfg_clone.borrow().window.as_ref().cloned().unwrap_or_default();
+        let win_cfg = cfg_clone.lock().unwrap().window.as_ref().cloned().unwrap_or_default();
 
         let frame = Frame::builder()
             .with_title(settings::APP_TITLE)
@@ -265,13 +275,12 @@ fn main() {
             let pos = frame_for_destroy.get_position();
             let size = frame_for_destroy.get_size();
             let win = WindowConfig::new(pos, size);
-            let mut cfg = cfg_for_destroy.borrow_mut();
-            cfg.window = Some(win);
+            cfg_for_destroy.lock().unwrap().window = Some(win);
             // Persist current servers from the model back to settings
             if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
                 list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
             }) {
-                cfg.servers = Some(servers);
+                cfg_for_destroy.lock().unwrap().servers = Some(servers);
             }
 
             // Clean up the TaskBarIcon, it's important to call destroy() to remove the icon from the system tray,
@@ -300,5 +309,12 @@ fn main() {
     });
 
     // Save settings on exit
-    settings::save_settings(&cfg.borrow_mut());
+    settings::save_settings(&cfg.lock().unwrap());
+    Ok(())
+}
+
+pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
+    log::debug!("Not running as admin, trying to elevate...");
+    let status = run_as::restart_self_elevated(None, true, false, Some(std::time::Duration::from_secs(10)))?;
+    Ok(status.unwrap_or_default())
 }
