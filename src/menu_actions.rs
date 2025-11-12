@@ -24,6 +24,25 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             log::info!("Menu/Toolbar: Settings clicked!");
             settings_dlg::settings_dlg(parent);
         }
+        MenuId::ScanQrCode => {
+            log::info!("Menu/Toolbar: Scan QR Code clicked!");
+            match screenshot_qr_import() {
+                Ok(node) => {
+                    let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, *const ServerNode>(|data| {
+                        let rc = Rc::new(RefCell::new(node));
+                        let ptr: *const ServerNode = get_raw_pointer(&rc);
+                        data.borrow_mut().nodes.push(rc);
+                        ptr
+                    });
+                    if let Some(ptr) = added {
+                        model.item_added::<ServerNode>(None, ptr);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to import node from screenshot QR code: {e}");
+                }
+            }
+        }
         MenuId::ViewDetails => {
             log::info!("Menu/Toolbar: View Details clicked!");
             // If a pending selection has been provided (e.g., by a double-click), use it to prefill
@@ -288,4 +307,37 @@ fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
         .map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
     log::trace!("QR code meta: {:?}", meta);
     Ok(content)
+}
+
+pub fn screenshot_qr_import() -> std::io::Result<ServerNode> {
+    let img = screenshot_to_image()?;
+    let scr_str = qr_decode(&img)?;
+    Ok(ServerNode::from_ssr_url(&scr_str)?)
+}
+
+fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
+    // Take screenshot of the primary display
+    let img = screenshot::get_screenshot(0).map_err(|e| std::io::Error::other(format!("Screenshot failed: {e}")))?;
+
+    // Screenshot struct: data: Vec<u8>, height, width, row_len, pixel_width
+    // ARGB format, need to convert to RGBA for image crate
+    let width = img.width() as u32;
+    let height = img.height() as u32;
+    let pixel_width = img.pixel_width();
+    let mut rgba_buf = Vec::with_capacity((width * height * 4) as usize);
+    let data = img.as_ref();
+    // BGRA -> RGBA
+    for chunk in data.chunks(pixel_width) {
+        if chunk.len() >= 4 {
+            // BGRA: [b, g, r, a] -> RGBA: [r, g, b, a]
+            rgba_buf.push(chunk[2]); // r
+            rgba_buf.push(chunk[1]); // g
+            rgba_buf.push(chunk[0]); // b
+            rgba_buf.push(chunk[3]); // a
+        }
+    }
+    let rgba_img = image::RgbaImage::from_raw(width, height, rgba_buf)
+        .ok_or_else(|| std::io::Error::other("Failed to create RGBA image from screenshot"))?;
+    let dyn_img = image::DynamicImage::ImageRgba8(rgba_img);
+    Ok(dyn_img)
 }

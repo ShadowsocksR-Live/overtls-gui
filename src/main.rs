@@ -177,7 +177,7 @@ fn main() {
         let main_menu = Menu::builder()
             .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
             .append_separator()
-            .append_item(MenuId::ScanQrCode.into(), "Scan QR Code from screen", "Scan QR code from screen")
+            .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+R", "Scan QR code from screen")
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
