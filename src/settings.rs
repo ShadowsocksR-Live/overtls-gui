@@ -54,6 +54,12 @@ pub struct Config {
     pub over_tls: Option<OverTlsSettings>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tun2proxy: Option<Tun2proxySettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_proxy: Option<HttpProxySettings>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
 }
 
@@ -73,6 +79,8 @@ impl Config {
                 last_opened_dir: None,
                 run_as_admin: None,
                 over_tls: None,
+                tun2proxy: None,
+                http_proxy: None,
             })
     }
 
@@ -114,6 +122,46 @@ impl Default for OverTlsSettings {
             listen_password: None,
             pool_max_size: 200,
             cache_dns: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Tun2proxySettings {
+    pub exit_on_fatal_error: bool,
+    pub max_sessions: usize,
+    pub dns_address: String,
+    pub dns_strategy: String,
+}
+
+impl Default for Tun2proxySettings {
+    fn default() -> Self {
+        Self {
+            exit_on_fatal_error: true,
+            max_sessions: 200,
+            dns_address: "8.8.8.8".into(),
+            dns_strategy: "over-tcp".into(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct HttpProxySettings {
+    pub listen_address_port: String,
+    pub s5_server_address_port: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+}
+
+impl Default for HttpProxySettings {
+    fn default() -> Self {
+        Self {
+            listen_address_port: "127.0.0.1:8080".into(),
+            s5_server_address_port: "127.0.0.1:1080".into(),
+            username: None,
+            password: None,
         }
     }
 }

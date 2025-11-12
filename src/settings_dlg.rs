@@ -246,13 +246,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
 
     let label_size = Size::new(150, -1);
 
-    // Enable Tun2proxy
-    let enable_label = StaticText::builder(&panel)
-        .with_label("    ")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let enable_checkbox = CheckBox::builder(&panel).with_label("Enable Tun2proxy").build();
+    let mut tun2proxy_settings = cfg.borrow().tun2proxy.clone().unwrap_or_default();
 
     // Exit on Fatal Error
     let exit_label = StaticText::builder(&panel)
@@ -260,7 +254,10 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
-    let exit_checkbox = CheckBox::builder(&panel).with_value(true).with_label("Exit on Fatal Error").build();
+    let exit_checkbox = CheckBox::builder(&panel)
+        .with_value(tun2proxy_settings.exit_on_fatal_error)
+        .with_label("Exit on Fatal Error")
+        .build();
 
     // Max Sessions
     let max_sessions_label = StaticText::builder(&panel)
@@ -269,7 +266,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .with_size(label_size)
         .build();
     let max_sessions_input = SpinCtrl::builder(&panel)
-        .with_initial_value(200)
+        .with_initial_value(tun2proxy_settings.max_sessions as i32)
         .with_min_value(1)
         .with_max_value(10000)
         .build();
@@ -282,7 +279,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .build();
     let dns_addr_input = TextCtrl::builder(&panel)
         .with_size(Size::new(200, -1))
-        .with_value("8.8.8.8")
+        .with_value(&tun2proxy_settings.dns_address)
         .build();
 
     // DNS Strategy (dropdown)
@@ -295,16 +292,20 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .into_iter()
         .map(String::from)
         .collect::<Vec<String>>();
+    let dns_strategy_selection = match tun2proxy_settings.dns_strategy.as_str() {
+        "virtual" => Some(0),
+        "over-tcp" => Some(1),
+        "direct" => Some(2),
+        _ => Some(1),
+    };
     let dns_strategy_choice = Choice::builder(&panel)
         .with_choices(dns_strategy_choices)
-        .with_selection(Some(1))
+        .with_selection(dns_strategy_selection)
         .with_size(Size::new(200, -1))
         .build();
 
-    // 使用 FlexGridSizer 排列
+    // Using FlexGridSizer for proper left-right alignment
     let grid = FlexGridSizer::builder(5, 2).with_vgap(10).with_hgap(16).build();
-    grid.add(&enable_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&enable_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
     grid.add(&exit_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&exit_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
     grid.add(&max_sessions_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
@@ -317,17 +318,33 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
+
+    let cfg = cfg.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
+            tun2proxy_settings.exit_on_fatal_error = exit_checkbox.get_value();
+            tun2proxy_settings.max_sessions = max_sessions_input.value() as usize;
+            tun2proxy_settings.dns_address = dns_addr_input.get_value();
+            tun2proxy_settings.dns_strategy = match dns_strategy_choice.get_selection() {
+                Some(0) => "virtual".to_string(),
+                Some(1) => "over-tcp".to_string(),
+                Some(2) => "direct".to_string(),
+                _ => "over-tcp".to_string(),
+            };
+
+            cfg.borrow_mut().tun2proxy = Some(tun2proxy_settings.clone());
+        }
+    });
+
     panel
 }
 
 fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+    let http_proxy_settings = cfg.borrow().http_proxy.clone().unwrap_or_default();
+
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(170, -1);
-
-    // Enable HttpProxy
-    let enable_label = StaticText::builder(&panel).with_label("").with_size(label_size).build();
-    let enable_checkbox = CheckBox::builder(&panel).with_label("Enable HttpProxy").build();
 
     // Source Type (dropdown)
     let source_type_label = StaticText::builder(&panel)
@@ -343,21 +360,23 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .build();
     source_type_choice.enable(false);
 
-    // Local Addr
-    let local_addr_label = StaticText::builder(&panel)
-        .with_label("Local Addr:")
+    // Listen Addr
+    let listen_addr_label = StaticText::builder(&panel)
+        .with_label("Listen Addr:")
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
-    let local_addr_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    let listen_addr_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    listen_addr_input.set_value(&http_proxy_settings.listen_address_port);
 
     // Server Addr
     let server_addr_label = StaticText::builder(&panel)
-        .with_label("Server Addr:")
+        .with_label("SOCKS5 Server Addr:")
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
     let server_addr_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    server_addr_input.set_value(&http_proxy_settings.s5_server_address_port);
 
     // Username
     let username_label = StaticText::builder(&panel)
@@ -366,6 +385,7 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .with_size(label_size)
         .build();
     let username_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    username_input.set_value(&http_proxy_settings.username.unwrap_or_default());
 
     // Password
     let password_label = StaticText::builder(&panel)
@@ -377,14 +397,13 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
         .with_size(Size::new(200, -1))
         .with_style(TextCtrlStyle::Password)
         .build();
+    password_input.set_value(&http_proxy_settings.password.unwrap_or_default());
 
     let grid = FlexGridSizer::builder(6, 2).with_vgap(10).with_hgap(16).build();
-    grid.add(&enable_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&enable_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
     grid.add(&source_type_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&source_type_choice, 0, SizerFlag::Expand, 0);
-    grid.add(&local_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&local_addr_input, 0, SizerFlag::Expand, 0);
+    grid.add(&listen_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&listen_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&server_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&server_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&username_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
@@ -395,6 +414,26 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_r
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
+
+    let cfg = cfg.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
+            let new_settings = crate::settings::HttpProxySettings {
+                listen_address_port: listen_addr_input.get_value(),
+                s5_server_address_port: server_addr_input.get_value(),
+                username: {
+                    let val = username_input.get_value();
+                    if val.is_empty() { None } else { Some(val) }
+                },
+                password: {
+                    let val = password_input.get_value();
+                    if val.is_empty() { None } else { Some(val) }
+                },
+            };
+            cfg.borrow_mut().http_proxy = Some(new_settings);
+        }
+    });
+
     panel
 }
 
