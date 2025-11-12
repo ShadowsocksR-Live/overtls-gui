@@ -1,5 +1,6 @@
 use crate::MenuId;
 use crate::ServerNode;
+use crate::model::get_raw_pointer;
 use crate::model::{NodeFields, ServerList, find_node_via_raw_ptr};
 use crate::selection_ctx;
 use crate::settings::WIDGET_MARGIN;
@@ -173,10 +174,7 @@ fn enable_dataview_dnd(dataview: &DataViewCtrl, model: &CustomDataViewTreeModel)
                 let mut ids: Vec<*const ServerNode> = Vec::with_capacity(parsed_nodes.len());
                 for rc in parsed_nodes.into_iter() {
                     // Obtain a raw pointer to the inner ServerNode for identification
-                    let ptr: *const ServerNode = {
-                        let b = rc.borrow();
-                        &*b as *const _
-                    };
+                    let ptr: *const ServerNode = get_raw_pointer(&rc);
                     // Then push into the list so the Rc lives in the model
                     data.nodes.push(rc);
                     ids.push(ptr);

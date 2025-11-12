@@ -1,6 +1,6 @@
 use crate::selection_ctx;
 use crate::settings::Config;
-use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, settings_dlg, show_qrcode_dlg};
+use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
 use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
@@ -38,10 +38,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                         // Commit the changes back to the model
                         *rc.borrow_mut() = updated_node;
                         // Notify the view that this item changed
-                        let ptr: *const ServerNode = {
-                            let b = rc.borrow();
-                            &*b as *const _
-                        };
+                        let ptr: *const ServerNode = get_raw_pointer(&rc);
                         model.item_changed::<ServerNode>(ptr);
                     }
                 } else {
@@ -58,10 +55,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             if let Some(node) = details_dlg::details_dlg(parent, None) {
                 let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
                     let rc = Rc::new(RefCell::new(node));
-                    let ptr: *const ServerNode = {
-                        let b = rc.borrow();
-                        &*b as *const _
-                    };
+                    let ptr: *const ServerNode = get_raw_pointer(&rc);
                     list_rc.borrow_mut().nodes.push(rc);
                     Some(ptr)
                 });
@@ -89,10 +83,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                     }
 
                     // Capture raw pointer for model notification before removal
-                    let child_ptr: *const ServerNode = {
-                        let b = rc.borrow();
-                        &*b as *const _
-                    };
+                    let child_ptr: *const ServerNode = get_raw_pointer(&rc);
 
                     // Remove from underlying data
                     let removed = model.with_userdata_mut::<Rc<RefCell<ServerList>>, bool>(|list_rc| {
@@ -176,10 +167,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                     if let Ok(node) = ServerNode::from_config_file(&path_option) {
                         let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
                             let rc = Rc::new(RefCell::new(node));
-                            let ptr: *const ServerNode = {
-                                let b = rc.borrow();
-                                &*b as *const _
-                            };
+                            let ptr: *const ServerNode = get_raw_pointer(&rc);
                             list_rc.borrow_mut().nodes.push(rc);
                             Some(ptr)
                         });
@@ -215,10 +203,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             if let Ok(node) = paste() {
                 let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, *const ServerNode>(|data| {
                     let rc = Rc::new(RefCell::new(node));
-                    let ptr: *const ServerNode = {
-                        let b = rc.borrow();
-                        &*b as *const _
-                    };
+                    let ptr: *const ServerNode = get_raw_pointer(&rc);
                     data.borrow_mut().nodes.push(rc);
                     ptr
                 });

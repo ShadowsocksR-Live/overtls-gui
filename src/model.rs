@@ -292,10 +292,15 @@ fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, c
 pub fn find_node_via_raw_ptr(list: &Rc<RefCell<ServerList>>, needle: *const ServerNode) -> Option<ServerNodeRc> {
     let list_ref = list.borrow();
     for rc in list_ref.nodes.iter() {
-        let ptr: *const ServerNode = &*rc.borrow();
+        let ptr: *const ServerNode = get_raw_pointer(rc);
         if ptr == needle {
             return Some(rc.clone());
         }
     }
     None
+}
+
+pub(crate) fn get_raw_pointer<T>(rc: &Rc<RefCell<T>>) -> *const T {
+    let b = rc.borrow();
+    &*b as *const _
 }
