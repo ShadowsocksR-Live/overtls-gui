@@ -49,6 +49,10 @@ pub struct Config {
     pub window: Option<WindowConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_opened_dir: Option<std::path::PathBuf>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub over_tls: Option<OverTlsSettings>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
 }
@@ -68,6 +72,7 @@ impl Config {
                 servers: None,
                 last_opened_dir: None,
                 run_as_admin: None,
+                over_tls: None,
             })
     }
 
@@ -85,6 +90,31 @@ impl Config {
 
     pub fn set_last_opened_dir<P: AsRef<Path>>(&mut self, path: P) {
         self.last_opened_dir = Some(path.as_ref().to_path_buf());
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct OverTlsSettings {
+    pub listen_host: String,
+    pub listen_port: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen_user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen_password: Option<String>,
+    pub pool_max_size: usize,
+    pub cache_dns: bool,
+}
+
+impl Default for OverTlsSettings {
+    fn default() -> Self {
+        Self {
+            listen_host: "127.0.0.1".into(),
+            listen_port: 1080,
+            listen_user: None,
+            listen_password: None,
+            pool_max_size: 200,
+            cache_dns: false,
+        }
     }
 }
 

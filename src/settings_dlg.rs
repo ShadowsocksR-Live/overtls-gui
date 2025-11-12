@@ -28,10 +28,10 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
 
     // Create tab pages using separate functions
     let common_panel = create_common_tab(&notebook, cfg, save_result.clone());
-    let overtls_panel = create_overtls_tab(&notebook, cfg);
-    let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg);
-    let httpproxy_panel = create_httpproxy_tab(&notebook, cfg);
-    let logging_panel = create_logging_tab(&notebook, cfg);
+    let overtls_panel = create_overtls_tab(&notebook, cfg, save_result.clone());
+    let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg, save_result.clone());
+    let httpproxy_panel = create_httpproxy_tab(&notebook, cfg, save_result.clone());
+    let logging_panel = create_logging_tab(&notebook, cfg, save_result.clone());
 
     let image_list = ImageList::new(16, 16, true, 4);
     let info_icon = ArtProvider::get_bitmap(ArtId::Information, ArtClient::Menu, Some(Size::new(16, 16))).unwrap();
@@ -87,11 +87,13 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     // Dialog is automatically cleaned up when it goes out of scope
 }
 
-fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     // Label size for alignment
     let label_size = Size::new(150, -1);
+
+    let mut over_tls_settings = cfg.borrow().over_tls.clone().unwrap_or_default();
 
     // Listen Host
     let host_label = StaticText::builder(&panel)
@@ -100,6 +102,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_size(label_size)
         .build();
     let host_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    host_input.set_value(&over_tls_settings.listen_host);
 
     // Listen Port
     let port_label = StaticText::builder(&panel)
@@ -108,7 +111,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_size(label_size)
         .build();
     let port_input = SpinCtrl::builder(&panel)
-        .with_initial_value(5080)
+        .with_initial_value(over_tls_settings.listen_port as i32)
         .with_min_value(1)
         .with_max_value(u16::MAX as i32)
         .build();
@@ -120,6 +123,9 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_size(label_size)
         .build();
     let user_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
+    if let Some(user) = &over_tls_settings.listen_user {
+        user_input.set_value(user);
+    }
 
     // Listen Password
     let password_label = StaticText::builder(&panel)
@@ -131,6 +137,9 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_size(Size::new(200, -1))
         .with_style(TextCtrlStyle::Password)
         .build();
+    if let Some(password) = &over_tls_settings.listen_password {
+        password_input.set_value(password);
+    }
 
     // Connection Pool Max Size
     let pool_label = StaticText::builder(&panel)
@@ -139,7 +148,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_size(label_size)
         .build();
     let pool_input = SpinCtrl::builder(&panel)
-        .with_initial_value(200)
+        .with_initial_value(over_tls_settings.pool_max_size as i32)
         .with_min_value(10)
         .with_max_value(10000)
         .with_size(Size::new(100, -1))
@@ -151,7 +160,10 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
-    let cache_dns_checkbox = CheckBox::builder(&panel).with_value(false).with_label("Cache DNS").build();
+    let cache_dns_checkbox = CheckBox::builder(&panel)
+        .with_value(over_tls_settings.cache_dns)
+        .with_label("Cache DNS")
+        .build();
 
     // Using FlexGridSizer for proper left-right alignment
     let grid = FlexGridSizer::builder(7, 2).with_vgap(10).with_hgap(16).build();
@@ -171,6 +183,27 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
+
+    let cfg = cfg.clone();
+    panel.on_destroy(move |_evt| {
+        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
+            over_tls_settings.listen_host = host_input.get_value();
+            over_tls_settings.listen_port = port_input.value() as u16;
+            over_tls_settings.listen_user = {
+                let val = user_input.get_value();
+                if val.is_empty() { None } else { Some(val) }
+            };
+            over_tls_settings.listen_password = {
+                let val = password_input.get_value();
+                if val.is_empty() { None } else { Some(val) }
+            };
+            over_tls_settings.pool_max_size = pool_input.value() as usize;
+            over_tls_settings.cache_dns = cache_dns_checkbox.get_value();
+
+            cfg.borrow_mut().over_tls = Some(over_tls_settings.clone());
+        }
+    });
+
     panel
 }
 
@@ -208,7 +241,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_resu
     panel
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
@@ -287,7 +320,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Pan
     panel
 }
 
-fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(170, -1);
@@ -365,7 +398,7 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Pan
     panel
 }
 
-fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>, save_result: Arc<AtomicBool>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(180, -1);
