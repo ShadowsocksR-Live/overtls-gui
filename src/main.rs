@@ -137,6 +137,7 @@ fn main() {
         let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::CustomStatusItem).build();
         taskbar.set_popup_menu(&mut tray_icon_menu);
         let frame_taskbar = frame.clone();
+        let cfg_for_taskbar = cfg_clone.clone();
         taskbar.on_menu(move |event| {
             let menu_id = event.get_id();
             match menu_id {
@@ -148,7 +149,7 @@ fn main() {
                 }
                 x if x == MenuId::Settings as i32 => {
                     log::info!("⚙️ Settings clicked!");
-                    settings_dlg::settings_dlg(&frame_taskbar);
+                    settings_dlg::settings_dlg(&frame_taskbar, &cfg_for_taskbar);
                 }
                 x if x == MenuId::About as i32 => {
                     log::info!("ℹ️ About clicked!");

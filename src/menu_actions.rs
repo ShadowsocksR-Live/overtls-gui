@@ -22,7 +22,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
         }
         MenuId::Settings => {
             log::info!("Menu/Toolbar: Settings clicked!");
-            settings_dlg::settings_dlg(parent);
+            settings_dlg::settings_dlg(parent, cfg);
         }
         MenuId::ScanQrCode => {
             log::info!("Menu/Toolbar: Scan QR Code clicked!");

@@ -1,7 +1,10 @@
-use crate::settings::{ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory};
+#![allow(unused)]
+
+use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory};
+use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
-pub fn settings_dlg(frame_clone: &dyn WxWidget) {
+pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     let (w, h) = (600, 400);
     let (x, y) = center_rect(frame_clone, w, h);
 
@@ -22,10 +25,10 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget) {
     let notebook = Notebook::builder(&panel).build();
 
     // Create tab pages using separate functions
-    let common_panel = create_common_tab(&notebook);
-    let tun2proxy_panel = create_tun2proxy_tab(&notebook);
-    let httpproxy_panel = create_httpproxy_tab(&notebook);
-    let logging_panel = create_logging_tab(&notebook);
+    let overtls_panel = create_overtls_tab(&notebook, cfg);
+    let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg);
+    let httpproxy_panel = create_httpproxy_tab(&notebook, cfg);
+    let logging_panel = create_logging_tab(&notebook, cfg);
 
     let image_list = ImageList::new(16, 16, true, 4);
     let info_icon = ArtProvider::get_bitmap(ArtId::Information, ArtClient::Menu, Some(Size::new(16, 16))).unwrap();
@@ -40,21 +43,17 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget) {
     notebook.set_image_list(image_list);
 
     // Add tabs to notebook
-    notebook.add_page(&common_panel, "Common", true, Some(0));
+    notebook.add_page(&overtls_panel, "OverTLS", true, Some(0));
     notebook.add_page(&tun2proxy_panel, "Tun2proxy", false, Some(1));
     notebook.add_page(&httpproxy_panel, "HttpProxy", false, Some(2));
     notebook.add_page(&logging_panel, "Logging", false, Some(3));
 
     // OK & Cancel buttons
-    let ok_button = Button::builder(&panel).with_label("OK").build();
+    let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
     let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
     let dialog_clone = dialog.clone();
     ok_button.on_click(move |_data| {
         dialog_clone.end_modal(ID_OK);
-    });
-    let dialog_clone2 = dialog.clone();
-    cancel_button.on_click(move |_data| {
-        dialog_clone2.end_modal(ID_CANCEL);
     });
 
     // Layout the panel content
@@ -73,12 +72,16 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget) {
 
     // Show the dialog modally
     let result = dialog.show_modal();
-    log::info!("Dialog returned: {}", result);
+    log::info!("Dialog returned: {result}");
+    if result == ID_OK {
+        log::info!("Settings dialog confirmed with OK.");
+    }
 
+    dialog.destroy();
     // Dialog is automatically cleaned up when it goes out of scope
 }
 
-fn create_common_tab(parent: &dyn WxWidget) -> Panel {
+fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     // Label size for alignment
@@ -165,7 +168,7 @@ fn create_common_tab(parent: &dyn WxWidget) -> Panel {
     panel
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget) -> Panel {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
@@ -244,7 +247,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget) -> Panel {
     panel
 }
 
-fn create_httpproxy_tab(parent: &dyn WxWidget) -> Panel {
+fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(170, -1);
@@ -322,7 +325,7 @@ fn create_httpproxy_tab(parent: &dyn WxWidget) -> Panel {
     panel
 }
 
-fn create_logging_tab(parent: &dyn WxWidget) -> Panel {
+fn create_logging_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(180, -1);
