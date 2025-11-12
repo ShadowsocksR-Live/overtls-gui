@@ -25,6 +25,7 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     let notebook = Notebook::builder(&panel).build();
 
     // Create tab pages using separate functions
+    let common_panel = create_common_tab(&notebook, cfg);
     let overtls_panel = create_overtls_tab(&notebook, cfg);
     let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg);
     let httpproxy_panel = create_httpproxy_tab(&notebook, cfg);
@@ -43,7 +44,8 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) {
     notebook.set_image_list(image_list);
 
     // Add tabs to notebook
-    notebook.add_page(&overtls_panel, "OverTLS", true, Some(0));
+    notebook.add_page(&common_panel, "Common", true, Some(0));
+    notebook.add_page(&overtls_panel, "OverTLS", false, Some(1));
     notebook.add_page(&tun2proxy_panel, "Tun2proxy", false, Some(1));
     notebook.add_page(&httpproxy_panel, "HttpProxy", false, Some(2));
     notebook.add_page(&logging_panel, "Logging", false, Some(3));
@@ -161,6 +163,32 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel
     grid.add(&pool_input, 0, SizerFlag::Expand, 0);
     grid.add(&cache_dns_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&cache_dns_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
+
+    let sizer = BoxSizer::builder(Orientation::Vertical).build();
+    sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
+    panel.set_sizer(sizer, true);
+    panel
+}
+
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Rc<RefCell<Config>>) -> Panel {
+    let panel = Panel::builder(parent).build();
+
+    // Simple layout: one checkbox for 'Run as administrator'
+    let label_size = Size::new(150, -1);
+    let spacer_label = StaticText::builder(&panel)
+        .with_label("    ")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+
+    let run_admin_checkbox = CheckBox::builder(&panel)
+        .with_label("Run as administrator (root) privileges")
+        .with_value(false)
+        .build();
+
+    let grid = FlexGridSizer::builder(1, 2).with_vgap(10).with_hgap(16).build();
+    grid.add(&spacer_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&run_admin_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
