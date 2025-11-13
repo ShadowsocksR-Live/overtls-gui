@@ -30,9 +30,6 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logging: Option<LoggingSettings>,
 
-    #[serde(default, skip_serializing)]
-    pub is_logging_level_changed: bool,
-
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
 }
@@ -56,7 +53,6 @@ impl Config {
                 tun2proxy: None,
                 http_proxy: None,
                 logging: None,
-                is_logging_level_changed: false,
             })
     }
 

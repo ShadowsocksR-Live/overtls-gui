@@ -363,7 +363,7 @@ fn main() -> std::io::Result<()> {
                             .ok()
                             .and_then(|c| c.logging.clone())
                             .and_then(|ls| ls.log_auto_scroll)
-                            .unwrap_or(true);
+                            .unwrap_or_default();
                         logview::ui_append_logs(appended, MAX_LOG_LINES, auto_scroll);
                     }));
                 }

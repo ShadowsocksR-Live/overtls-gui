@@ -1,5 +1,8 @@
-use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_from_memory, save_settings};
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
+use crate::settings::{
+    Config, HttpProxySettings, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, Tun2proxySettings, center_rect,
+    create_bitmap_from_memory, save_settings,
+};
+use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
 
 pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
@@ -22,14 +25,12 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     // Create Notebook for tabs
     let notebook = Notebook::builder(&panel).build();
 
-    let save_result = Arc::new(AtomicBool::new(false));
-
-    // Create tab pages using separate functions
-    let common_panel = create_common_tab(&notebook, cfg, save_result.clone());
-    let overtls_panel = create_overtls_tab(&notebook, cfg, save_result.clone());
-    let tun2proxy_panel = create_tun2proxy_tab(&notebook, cfg, save_result.clone());
-    let httpproxy_panel = create_httpproxy_tab(&notebook, cfg, save_result.clone());
-    let logging_panel = create_logging_tab(&notebook, cfg, save_result.clone());
+    // Create tab pages and their readers (each page can return its own struct)
+    let (common_panel, common_read) = create_common_tab(&notebook, cfg);
+    let (overtls_panel, overtls_read) = create_overtls_tab(&notebook, cfg);
+    let (tun2proxy_panel, tun2proxy_read) = create_tun2proxy_tab(&notebook, cfg);
+    let (httpproxy_panel, httpproxy_read) = create_httpproxy_tab(&notebook, cfg);
+    let (logging_panel, logging_read) = create_logging_tab(&notebook, cfg);
 
     let image_list = ImageList::new(16, 16, true, 4);
     let info_icon = ArtProvider::get_bitmap(ArtId::Information, ArtClient::Menu, Some(Size::new(16, 16))).unwrap();
@@ -54,9 +55,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
     let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
     let dialog_clone = dialog.clone();
-    let save_result_for_ok = save_result.clone();
     ok_button.on_click(move |_data| {
-        save_result_for_ok.store(true, std::sync::atomic::Ordering::SeqCst);
         dialog_clone.end_modal(ID_OK);
     });
 
@@ -69,47 +68,6 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     panel_sizer.add_sizer(&btn_sizer, 0, SizerFlag::AlignCentre | SizerFlag::All, 0);
     panel.set_sizer(panel_sizer, true);
 
-    let cfg_for_panel_destroy = cfg.clone();
-    let save_result_for_panel_destroy = save_result.clone();
-    panel.on_destroy(move |_evt| {
-        if save_result_for_panel_destroy.load(std::sync::atomic::Ordering::SeqCst) {
-            let cfg = cfg_for_panel_destroy.clone();
-
-            wxdragon::call_after(Box::new(move || {
-                let run_as_admin = cfg.lock().unwrap().run_as_admin.unwrap_or_default();
-                log::info!("Settings panel destroyed, settings committed. Run as admin: {run_as_admin}");
-
-                let logging_changed = cfg.lock().unwrap().is_logging_level_changed;
-
-                if run_as_admin && !run_as::is_elevated() {
-                    // Persist the latest settings prior to restart
-                    save_settings(&cfg.lock().unwrap());
-                    if let Ok(status) = crate::restart_as_admin() {
-                        log::debug!("Restarted as admin with status code {status}, exiting current instance.");
-                        ::std::process::exit(status.code().unwrap_or_default());
-                    }
-                } else if logging_changed {
-                    // Persist we must restart to apply logging changes
-                    save_settings(&cfg.lock().unwrap());
-                    // Restart Required, Logging level changes will take effect after restart.
-                    // let dlg = MessageDialog::builder(
-                    //     dlg,
-                    //     "Logging level changes require application restart to take effect. Restart now?",
-                    //     "Restart Required",
-                    // )
-                    // .build();
-                    // dlg.show_modal();
-                    let mut s = 0;
-                    if let Ok(Some(status)) = run_as::restart_self(None, false) {
-                        // log::error!("Failed to restart self: {status}");
-                        s = status.code().unwrap_or_default();
-                    }
-                    ::std::process::exit(s);
-                }
-            }));
-        }
-    });
-
     // Layout the dialog
     let dialog_sizer = BoxSizer::builder(Orientation::Vertical).build();
     dialog_sizer.add(&panel, 1, SizerFlag::Expand, 0);
@@ -117,20 +75,77 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
 
     // Show the dialog modally
     let result = dialog.show_modal();
-    dialog.destroy();
     log::info!("Dialog returned: {result}");
     if result == ID_OK {
         log::info!("Settings dialog confirmed with OK.");
+
+        // Read values from each page and update config
+        let mut cfg_lock = cfg.lock().unwrap();
+
+        // Common
+        let run_as_admin_checked = common_read();
+        cfg_lock.run_as_admin = if run_as_admin_checked { Some(true) } else { None };
+
+        // OverTLS
+        let new_overtls: OverTlsSettings = overtls_read();
+        cfg_lock.over_tls = Some(new_overtls);
+
+        // Tun2proxy
+        let new_tun2proxy: Tun2proxySettings = tun2proxy_read();
+        cfg_lock.tun2proxy = Some(new_tun2proxy);
+
+        // HttpProxy
+        let new_http: HttpProxySettings = httpproxy_read();
+        cfg_lock.http_proxy = Some(new_http);
+
+        // Logging (also mark if changed)
+        let prev_logging = cfg_lock.logging.clone().unwrap_or_default();
+        let new_logging: LoggingSettings = logging_read();
+        let logging_changed = !new_logging.is_log_level_equal(&prev_logging);
+        cfg_lock.logging = Some(new_logging);
+
+        drop(cfg_lock);
+
+        let run_as_admin = cfg.lock().unwrap().run_as_admin.unwrap_or_default();
+        log::info!("Settings panel destroyed, settings committed. Run as admin: {run_as_admin}");
+
+        if run_as_admin && !run_as::is_elevated() {
+            // Persist the latest settings prior to restart
+            save_settings(&cfg.lock().unwrap());
+            let mut s = 0;
+            if let Ok(status) = crate::restart_as_admin() {
+                log::debug!("Restarted as admin with status code {status}, exiting current instance.");
+                s = status.code().unwrap_or_default();
+            }
+            ::std::process::exit(s);
+        } else if logging_changed {
+            save_settings(&cfg.lock().unwrap());
+
+            // Restart Required, Logging level changes will take effect after restart.
+            let dlg = MessageDialog::builder(
+                parent,
+                "Logging level changes require application restart to take effect. Restart now?",
+                "Restart Required",
+            )
+            .build();
+            dlg.show_modal();
+
+            let mut s = 0;
+            if let Ok(Some(status)) = run_as::restart_self(None, false) {
+                s = status.code().unwrap_or_default();
+            }
+            ::std::process::exit(s);
+        }
     }
 }
 
-fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> OverTlsSettings + 'static) {
     let panel = Panel::builder(parent).build();
 
     // Label size for alignment
     let label_size = Size::new(150, -1);
 
-    let mut over_tls_settings = cfg.lock().unwrap().over_tls.clone().unwrap_or_default();
+    let over_tls_settings = cfg.lock().unwrap().over_tls.clone().unwrap_or_default();
 
     // Listen Host
     let host_label = StaticText::builder(&panel)
@@ -221,30 +236,34 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_resu
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    let cfg = cfg.clone();
-    panel.on_destroy(move |_evt| {
-        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            over_tls_settings.listen_host = host_input.get_value();
-            over_tls_settings.listen_port = port_input.value() as u16;
-            over_tls_settings.listen_user = {
+    // Build a reader closure to return OverTlsSettings from current inputs
+    let reader = {
+        let host_input = host_input.clone();
+        let port_input = port_input.clone();
+        let user_input = user_input.clone();
+        let password_input = password_input.clone();
+        let pool_input = pool_input.clone();
+        let cache_dns_checkbox = cache_dns_checkbox.clone();
+        move || OverTlsSettings {
+            listen_host: host_input.get_value(),
+            listen_port: port_input.value() as u16,
+            listen_user: {
                 let val = user_input.get_value();
                 if val.is_empty() { None } else { Some(val) }
-            };
-            over_tls_settings.listen_password = {
+            },
+            listen_password: {
                 let val = password_input.get_value();
                 if val.is_empty() { None } else { Some(val) }
-            };
-            over_tls_settings.pool_max_size = pool_input.value() as usize;
-            over_tls_settings.cache_dns = cache_dns_checkbox.get_value();
-
-            cfg.lock().unwrap().over_tls = Some(over_tls_settings.clone());
+            },
+            pool_max_size: pool_input.value() as usize,
+            cache_dns: cache_dns_checkbox.get_value(),
         }
-    });
+    };
 
-    panel
+    (panel, reader)
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> bool + 'static) {
     let panel = Panel::builder(parent).build();
 
     // Simple layout: one checkbox for 'Run as administrator'
@@ -268,22 +287,21 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_resul
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    let cfg = cfg.clone();
-    panel.on_destroy(move |_evt| {
-        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            cfg.lock().unwrap().run_as_admin = if run_admin_checkbox.get_value() { Some(true) } else { None };
-        }
-    });
+    // Reader returns whether Run as administrator is checked
+    let reader = {
+        let run_admin_checkbox = run_admin_checkbox.clone();
+        move || run_admin_checkbox.get_value()
+    };
 
-    panel
+    (panel, reader)
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> Tun2proxySettings + 'static) {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
 
-    let mut tun2proxy_settings = cfg.lock().unwrap().tun2proxy.clone().unwrap_or_default();
+    let tun2proxy_settings = cfg.lock().unwrap().tun2proxy.clone().unwrap_or_default();
 
     // Exit on Fatal Error
     let exit_label = StaticText::builder(&panel)
@@ -356,27 +374,29 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_re
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    let cfg = cfg.clone();
-    panel.on_destroy(move |_evt| {
-        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            tun2proxy_settings.exit_on_fatal_error = exit_checkbox.get_value();
-            tun2proxy_settings.max_sessions = max_sessions_input.value() as usize;
-            tun2proxy_settings.dns_address = dns_addr_input.get_value();
-            tun2proxy_settings.dns_strategy = match dns_strategy_choice.get_selection() {
+    // Reader closure for Tun2proxySettings
+    let reader = {
+        let exit_checkbox = exit_checkbox.clone();
+        let max_sessions_input = max_sessions_input.clone();
+        let dns_addr_input = dns_addr_input.clone();
+        let dns_strategy_choice = dns_strategy_choice.clone();
+        move || Tun2proxySettings {
+            exit_on_fatal_error: exit_checkbox.get_value(),
+            max_sessions: max_sessions_input.value() as usize,
+            dns_address: dns_addr_input.get_value(),
+            dns_strategy: match dns_strategy_choice.get_selection() {
                 Some(0) => "virtual".to_string(),
                 Some(1) => "over-tcp".to_string(),
                 Some(2) => "direct".to_string(),
                 _ => "over-tcp".to_string(),
-            };
-
-            cfg.lock().unwrap().tun2proxy = Some(tun2proxy_settings.clone());
+            },
         }
-    });
+    };
 
-    panel
+    (panel, reader)
 }
 
-fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> HttpProxySettings + 'static) {
     let http_proxy_settings = cfg.lock().unwrap().http_proxy.clone().unwrap_or_default();
 
     let panel = Panel::builder(parent).build();
@@ -452,29 +472,30 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_re
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    let cfg = cfg.clone();
-    panel.on_destroy(move |_evt| {
-        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            let new_settings = crate::settings::HttpProxySettings {
-                listen_address_port: listen_addr_input.get_value(),
-                s5_server_address_port: server_addr_input.get_value(),
-                username: {
-                    let val = username_input.get_value();
-                    if val.is_empty() { None } else { Some(val) }
-                },
-                password: {
-                    let val = password_input.get_value();
-                    if val.is_empty() { None } else { Some(val) }
-                },
-            };
-            cfg.lock().unwrap().http_proxy = Some(new_settings);
+    // Reader closure for HttpProxySettings
+    let reader = {
+        let listen_addr_input = listen_addr_input.clone();
+        let server_addr_input = server_addr_input.clone();
+        let username_input = username_input.clone();
+        let password_input = password_input.clone();
+        move || HttpProxySettings {
+            listen_address_port: listen_addr_input.get_value(),
+            s5_server_address_port: server_addr_input.get_value(),
+            username: {
+                let val = username_input.get_value();
+                if val.is_empty() { None } else { Some(val) }
+            },
+            password: {
+                let val = password_input.get_value();
+                if val.is_empty() { None } else { Some(val) }
+            },
         }
-    });
+    };
 
-    panel
+    (panel, reader)
 }
 
-fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_result: Arc<AtomicBool>) -> Panel {
+fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> LoggingSettings + 'static) {
     let logging_settings = cfg.lock().unwrap().logging.clone().unwrap_or_default();
 
     let panel = Panel::builder(parent).build();
@@ -632,25 +653,28 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_resu
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    let cfg = cfg.clone();
-    cfg.lock().unwrap().is_logging_level_changed = false;
-    panel.on_destroy(move |_evt| {
-        if save_result.load(std::sync::atomic::Ordering::SeqCst) {
-            let new_settings = crate::settings::LoggingSettings {
-                global_log_level: global_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                rustls_log_level: rustls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                tokio_tungstenite_log_level: tokio_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                tungstenite_log_level: tungstenite_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                ipstack_log_level: ipstack_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                overtls_log_level: overtls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
-                log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
-            };
-            let changed = !new_settings.is_log_level_equal(&logging_settings);
-            cfg.lock().unwrap().is_logging_level_changed = changed;
-            cfg.lock().unwrap().logging = Some(new_settings);
+    // Reader closure for LoggingSettings
+    let reader = {
+        let global_choice = global_choice.clone();
+        let rustls_choice = rustls_choice.clone();
+        let tokio_choice = tokio_choice.clone();
+        let tungstenite_choice = tungstenite_choice.clone();
+        let ipstack_choice = ipstack_choice.clone();
+        let overtls_choice = overtls_choice.clone();
+        let tun2proxy_choice = tun2proxy_choice.clone();
+        let auto_scroll_checkbox = auto_scroll_checkbox.clone();
+        let log_levels = log_levels.clone();
+        move || LoggingSettings {
+            global_log_level: global_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            rustls_log_level: rustls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            tokio_tungstenite_log_level: tokio_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            tungstenite_log_level: tungstenite_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            ipstack_log_level: ipstack_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            overtls_log_level: overtls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
+            log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
         }
-    });
+    };
 
-    panel
+    (panel, reader)
 }
