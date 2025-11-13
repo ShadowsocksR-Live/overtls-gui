@@ -65,11 +65,7 @@ mod show_qrcode_dlg;
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
 use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::{cell::RefCell, rc::Rc, sync::Arc, sync::Mutex};
 use wxdragon::prelude::*;
 
 fn main() -> std::io::Result<()> {
