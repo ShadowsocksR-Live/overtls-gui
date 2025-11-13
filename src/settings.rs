@@ -3,7 +3,7 @@
 
 use crate::ServerNode;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use wxdragon::prelude::*;
 
 /// Top-level application configuration.
@@ -224,10 +224,13 @@ pub fn save_settings(cfg: &Config) {
 }
 
 fn retrieve_config_path() -> std::path::PathBuf {
+    /*
     let app_name = env!("CARGO_PKG_NAME");
     let config_path: std::path::PathBuf = ::dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join(app_name);
     let _ = std::fs::create_dir_all(&config_path);
     config_path.join("settings.json")
+    */
+    get_config_path("settings.json")
 }
 
 pub fn create_bitmap_from_memory(data: &[u8], target_size: Option<(u32, u32)>) -> std::io::Result<Bitmap> {
@@ -256,4 +259,30 @@ pub fn center_rect(parent: &dyn WxWidget, w: i32, h: i32) -> (i32, i32) {
     let x = parent_pos.x + (parent_size.width - w) / 2;
     let y = parent_pos.y + (parent_size.height - h) / 2;
     (x, y)
+}
+
+fn get_real_config_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    if let Ok(sudo_user) = std::env::var("SUDO_USER") {
+        let home_path = PathBuf::from("/home").join(&sudo_user).join(".config");
+        return home_path;
+    }
+    dirs::config_dir().unwrap_or_else(|| std::env::current_dir().unwrap())
+}
+
+fn get_config_path(file_name: &str) -> PathBuf {
+    let mut path = get_real_config_dir();
+    path.push(env!("CARGO_PKG_NAME"));
+    let _r = std::fs::create_dir_all(&path);
+    #[cfg(target_os = "linux")]
+    if _r.is_ok()
+        && run_as::is_elevated()
+        && let Ok(sudo_user) = std::env::var("SUDO_USER")
+        && path.starts_with(format!("/home/{sudo_user}/.config"))
+    {
+        // chown -R <sudo_user> <path>
+        let _ = std::process::Command::new("chown").arg("-R").arg(&sudo_user).arg(&path).status();
+    }
+    path.push(file_name);
+    path
 }
