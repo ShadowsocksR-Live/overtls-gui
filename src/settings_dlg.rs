@@ -2,12 +2,12 @@ use crate::settings::{Config, ICON_SIZE, MAIN_ICON, center_rect, create_bitmap_f
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use wxdragon::prelude::*;
 
-pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
+pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     let (w, h) = (600, 400);
-    let (x, y) = center_rect(frame_clone, w, h);
+    let (x, y) = center_rect(parent, w, h);
 
     // Create a generic dialog using the new builder
-    let dialog = Dialog::builder(frame_clone, "Settings")
+    let dialog = Dialog::builder(parent, "Settings")
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_position(x, y)
         .with_size(w, h)
@@ -79,6 +79,8 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
                 let run_as_admin = cfg.lock().unwrap().run_as_admin.unwrap_or_default();
                 log::info!("Settings panel destroyed, settings committed. Run as admin: {run_as_admin}");
 
+                let logging_changed = cfg.lock().unwrap().is_logging_level_changed;
+
                 if run_as_admin && !run_as::is_elevated() {
                     // Persist the latest settings prior to restart
                     save_settings(&cfg.lock().unwrap());
@@ -86,6 +88,23 @@ pub fn settings_dlg(frame_clone: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
                         log::debug!("Restarted as admin with status code {status}, exiting current instance.");
                         ::std::process::exit(status.code().unwrap_or_default());
                     }
+                } else if logging_changed {
+                    // Persist we must restart to apply logging changes
+                    save_settings(&cfg.lock().unwrap());
+                    // Restart Required, Logging level changes will take effect after restart.
+                    // let dlg = MessageDialog::builder(
+                    //     dlg,
+                    //     "Logging level changes require application restart to take effect. Restart now?",
+                    //     "Restart Required",
+                    // )
+                    // .build();
+                    // dlg.show_modal();
+                    let mut s = 0;
+                    if let Ok(Some(status)) = run_as::restart_self(None, false) {
+                        // log::error!("Failed to restart self: {status}");
+                        s = status.code().unwrap_or_default();
+                    }
+                    ::std::process::exit(s);
                 }
             }));
         }
@@ -614,6 +633,7 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_resu
     panel.set_sizer(sizer, true);
 
     let cfg = cfg.clone();
+    cfg.lock().unwrap().is_logging_level_changed = false;
     panel.on_destroy(move |_evt| {
         if save_result.load(std::sync::atomic::Ordering::SeqCst) {
             let new_settings = crate::settings::LoggingSettings {
@@ -626,6 +646,8 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>, save_resu
                 tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
                 log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
             };
+            let changed = !new_settings.is_log_level_equal(&logging_settings);
+            cfg.lock().unwrap().is_logging_level_changed = changed;
             cfg.lock().unwrap().logging = Some(new_settings);
         }
     });

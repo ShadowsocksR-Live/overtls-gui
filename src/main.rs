@@ -54,6 +54,7 @@ impl TryFrom<i32> for MenuId {
 mod about_dlg;
 mod dataview;
 mod details_dlg;
+mod logger;
 mod logview;
 mod menu_actions;
 mod model;
@@ -69,13 +70,31 @@ use std::{cell::RefCell, rc::Rc, sync::Arc, sync::Mutex};
 use wxdragon::prelude::*;
 
 fn main() -> std::io::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+    // #[cfg(debug_assertions)]
+    // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+
     let cfg = Arc::new(Mutex::new(settings::load_settings()));
 
     if cfg.lock().unwrap().run_as_admin.unwrap_or_default() && !run_as::is_elevated() {
         let status = restart_as_admin()?;
         std::process::exit(status.code().unwrap_or_default());
     }
+
+    let logging_settings = cfg.lock().unwrap().logging.clone().unwrap_or_default();
+    let (tx, logging_rx) = std::sync::mpsc::channel();
+    if let Err(e) = log::set_boxed_logger(Box::new(logging_settings.create_logger(tx))) {
+        log::warn!("Failed to set logger: {e}");
+    }
+    // Note: No longer use log::set_max_level, as it is now controlled by the Logger internally
+    log::set_max_level(log::LevelFilter::Trace);
+
+    let log_queue = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let log_queue_thread = log_queue.clone();
+    std::thread::spawn(move || {
+        for msg in logging_rx {
+            log_queue_thread.lock().unwrap().push(msg);
+        }
+    });
 
     let cfg_clone = cfg.clone();
     let _ = wxdragon::main(move |_| {
@@ -297,7 +316,59 @@ fn main() -> std::io::Result<()> {
 
         // Integrate LogView module (bottom, fixed height)
         let logview_panel = logview::LogViewPanel::new(&main_panel);
+        // Register the TextCtrl in UI-thread-local storage for callbacks
+        logview::LOG_TEXT_CTRL.with(|cell| {
+            *cell.borrow_mut() = Some(logview_panel.text_ctrl.clone());
+        });
         sizer.add(&logview_panel.panel, 0, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
+
+        // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
+        {
+            let ui_log_queue = log_queue.clone();
+            std::thread::spawn(move || {
+                // Throttle updates a bit to avoid overwhelming the UI
+                const SLEEP_MS: u64 = 120;
+                const MAX_LOG_LINES: usize = 1000;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(SLEEP_MS));
+
+                    // Drain any pending log tuples into a local batch
+                    let mut batch: Vec<(log::Level, String, String)> = Vec::new();
+                    if let Ok(mut q) = ui_log_queue.lock() {
+                        if !q.is_empty() {
+                            batch.extend(q.drain(..));
+                        }
+                    }
+
+                    if batch.is_empty() {
+                        continue;
+                    }
+
+                    // Pre-format text in the background thread; Strings are Send
+                    let appended = {
+                        let mut lines = String::new();
+                        for (level, module, msg) in batch.into_iter() {
+                            // Example: "[INFO module] message\n"
+                            lines.push_str(&format!("[{:<5} {}] {}\n", level, module, msg));
+                        }
+                        lines
+                    };
+
+                    // Apply text update on the UI thread using a ring buffer (stable trimming)
+                    // Respect user's auto-scroll preference from settings
+                    let cfg_for_autoscroll = cfg_clone.clone();
+                    wxdragon::call_after(Box::new(move || {
+                        let auto_scroll = cfg_for_autoscroll
+                            .lock()
+                            .ok()
+                            .and_then(|c| c.logging.clone())
+                            .and_then(|ls| ls.log_auto_scroll)
+                            .unwrap_or(true);
+                        logview::ui_append_logs(appended, MAX_LOG_LINES, auto_scroll);
+                    }));
+                }
+            });
+        }
 
         main_panel.set_sizer(sizer, true);
 

@@ -30,6 +30,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logging: Option<LoggingSettings>,
 
+    #[serde(default, skip_serializing)]
+    pub is_logging_level_changed: bool,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
 }
@@ -53,6 +56,7 @@ impl Config {
                 tun2proxy: None,
                 http_proxy: None,
                 logging: None,
+                is_logging_level_changed: false,
             })
     }
 
@@ -285,4 +289,82 @@ fn get_config_path(file_name: &str) -> PathBuf {
     }
     path.push(file_name);
     path
+}
+
+impl LoggingSettings {
+    /// Creates a new Logger from LoggingSettings
+    pub fn create_logger(&self, sender: crate::logger::LogSender) -> crate::logger::Logger {
+        /// Convert string to LevelFilter
+        pub fn string_to_level_filter(s: &str) -> Result<log::LevelFilter, &'static str> {
+            match s.to_lowercase().as_str() {
+                "off" => Ok(log::LevelFilter::Off),
+                "error" => Ok(log::LevelFilter::Error),
+                "warn" => Ok(log::LevelFilter::Warn),
+                "info" => Ok(log::LevelFilter::Info),
+                "debug" => Ok(log::LevelFilter::Debug),
+                "trace" => Ok(log::LevelFilter::Trace),
+                _ => Err("Invalid log level"),
+            }
+        }
+
+        let mut module_filters = std::collections::HashMap::new();
+
+        if let Some(rustls_level) = &self.rustls_log_level
+            && let Ok(level) = string_to_level_filter(rustls_level)
+        {
+            module_filters.insert("rustls".to_string(), level);
+        }
+
+        if let Some(tokio_tungstenite_level) = &self.tokio_tungstenite_log_level
+            && let Ok(level) = string_to_level_filter(tokio_tungstenite_level)
+        {
+            module_filters.insert("tokio_tungstenite".to_string(), level);
+        }
+
+        if let Some(tungstenite_level) = &self.tungstenite_log_level
+            && let Ok(level) = string_to_level_filter(tungstenite_level)
+        {
+            module_filters.insert("tungstenite".to_string(), level);
+        }
+
+        if let Some(ipstack_level) = &self.ipstack_log_level
+            && let Ok(level) = string_to_level_filter(ipstack_level)
+        {
+            module_filters.insert("ipstack".to_string(), level);
+        }
+
+        if let Some(overtls_log_level) = &self.overtls_log_level
+            && let Ok(level) = string_to_level_filter(overtls_log_level)
+        {
+            module_filters.insert("overtls".to_string(), level);
+        }
+
+        if let Some(tun2proxy_log_level) = &self.tun2proxy_log_level
+            && let Ok(level) = string_to_level_filter(tun2proxy_log_level)
+        {
+            module_filters.insert("tun2proxy".to_string(), level);
+        }
+
+        let default_level = if let Some(global_level) = &self.global_log_level {
+            string_to_level_filter(global_level).unwrap_or(log::LevelFilter::Debug)
+        } else {
+            log::LevelFilter::Debug
+        };
+
+        crate::logger::Logger {
+            sender,
+            module_filters,
+            default_level,
+        }
+    }
+
+    pub fn is_log_level_equal(&self, other: &LoggingSettings) -> bool {
+        self.rustls_log_level == other.rustls_log_level
+            && self.tokio_tungstenite_log_level == other.tokio_tungstenite_log_level
+            && self.tungstenite_log_level == other.tungstenite_log_level
+            && self.ipstack_log_level == other.ipstack_log_level
+            && self.overtls_log_level == other.overtls_log_level
+            && self.tun2proxy_log_level == other.tun2proxy_log_level
+            && self.global_log_level == other.global_log_level
+    }
 }
