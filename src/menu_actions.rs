@@ -2,9 +2,13 @@ use crate::selection_ctx;
 use crate::settings::Config;
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::thread::JoinHandle;
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
+
+static RUNNING_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static RUNNING_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
@@ -239,6 +243,73 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             }
         }
 
+        MenuId::Run => {
+            log::info!("Menu/Toolbar: Run clicked!");
+            if let Some(weak) = selection_ctx::get_pending_details()
+                && let Some(rc) = weak.upgrade()
+            {
+                let mut node = rc.borrow().clone();
+
+                // "Please select a node first."
+                // "Selected node not found."
+                // Stop node first if it's running
+
+                if RUNNING_TOKEN.lock().unwrap().is_some() {
+                    log::warn!("A node is already running. Please stop it first.");
+                    return;
+                }
+
+                let settings = cfg.lock().unwrap().clone();
+
+                // let system_settings = state_clone.borrow().system_settings.clone().unwrap_or_default();
+                // let tun2proxy_enable = system_settings.tun2proxy_enable.unwrap_or_default();
+                // if tun2proxy_enable && !run_as::is_elevated() {
+                //     // "Requires admin privileges. Please restart the application as administrator."
+                //     return;
+                // }
+
+                crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
+
+                if let Err(e) = node.check_correctness(false) {
+                    log::warn!("Node configuration is incorrect: {e}. Please check the settings.");
+                    return;
+                }
+
+                let tun2proxy_args = crate::core::cook_tun2proxy_config(&settings, &node);
+
+                let title = node.remarks.clone().unwrap_or_default();
+                let token = overtls::CancellationToken::new();
+                *RUNNING_TOKEN.lock().unwrap() = Some(token.clone());
+                let title_clone = title.clone();
+                let running_token = RUNNING_TOKEN.clone();
+                let running_handle = RUNNING_HANDLE.clone();
+                let handle = std::thread::spawn(move || {
+                    let res = crate::core::main_task_block(node, tun2proxy_args, token);
+                    if let Err(e) = &res {
+                        log::error!("Node '{title_clone}' exited with error: {e}");
+                    }
+                    if let Ok(mut token) = running_token.try_lock()
+                        && let Some(token) = token.take()
+                    {
+                        token.cancel();
+                    }
+                    if let Ok(mut handle) = running_handle.try_lock() {
+                        handle.take();
+                    }
+                    res
+                });
+                *RUNNING_HANDLE.lock().unwrap() = Some(handle);
+                log::debug!("Node '{title}' is starting...");
+            }
+        }
+
+        MenuId::Stop => {
+            log::info!("Menu/Toolbar: Stop clicked!");
+            if let Err(e) = stop_running_node(&RUNNING_TOKEN, &RUNNING_HANDLE) {
+                log::error!("Failed to stop running node: {e}");
+            }
+        }
+
         _ => {
             log::warn!("Unhandled Menu ID: {menu_id:?}");
         }
@@ -345,4 +416,24 @@ fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
         .ok_or_else(|| std::io::Error::other("Failed to create RGBA image from screenshot"))?;
     let dyn_img = image::DynamicImage::ImageRgba8(rgba_img);
     Ok(dyn_img)
+}
+
+fn stop_running_node(
+    running_token: &Arc<Mutex<Option<overtls::CancellationToken>>>,
+    running_handle: &Arc<Mutex<Option<std::thread::JoinHandle<std::io::Result<()>>>>>,
+) -> std::io::Result<()> {
+    let mut err_info = None;
+    let f1 = |e| std::io::Error::other(format!("running_token lock error: {e}"));
+    if let Some(token) = running_token.lock().map_err(f1)?.take() {
+        token.cancel();
+    } else {
+        err_info = Some("No running node.".to_string());
+    }
+    let f2 = |e| std::io::Error::other(format!("running_handle lock error: {e}"));
+    if let Some(handle) = running_handle.lock().map_err(f2)?.take()
+        && let Err(e) = crate::util::thread_handle_join_with_timeout(handle, 3000)
+    {
+        err_info = Some(format!("Failed to join running thread: {e:?}"));
+    }
+    err_info.map(|e| Err(std::io::Error::other(e))).unwrap_or(Ok(()))
 }

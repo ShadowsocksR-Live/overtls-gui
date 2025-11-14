@@ -9,7 +9,7 @@ use wxdragon::prelude::*;
 /// Top-level application configuration.
 /// - `window`: window position/size
 /// - `servers`: a list of server nodes managed by the app
-#[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_as_admin: Option<bool>,
@@ -22,7 +22,7 @@ pub struct Config {
     pub over_tls: Option<OverTlsSettings>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tun2proxy: Option<Tun2proxySettings>,
+    pub tun2proxy: Option<tun2proxy::Args>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http_proxy: Option<HttpProxySettings>,
@@ -126,25 +126,6 @@ impl Default for OverTlsSettings {
             listen_password: None,
             pool_max_size: 200,
             cache_dns: false,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Tun2proxySettings {
-    pub exit_on_fatal_error: bool,
-    pub max_sessions: usize,
-    pub dns_address: String,
-    pub dns_strategy: String,
-}
-
-impl Default for Tun2proxySettings {
-    fn default() -> Self {
-        Self {
-            exit_on_fatal_error: true,
-            max_sessions: 200,
-            dns_address: "8.8.8.8".into(),
-            dns_strategy: "over-tcp".into(),
         }
     }
 }

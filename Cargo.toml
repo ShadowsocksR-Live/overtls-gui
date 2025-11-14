@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bitflags = "2.9.4"
+chrono = "0.4.42"
 dirs = "6.0"
 env_logger = "0.11.8"
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -17,6 +18,8 @@ screenshot = { version = "0.0.7", git = "https://github.com/ssrlive/screenshot-r
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 strum = { version = "0.27", features = ["derive"] }
+tokio = { version = "1.47.1", features = ["full"] }
+tun2proxy = { version = "0.7.15", default-features = false }
 wxdragon = { path = "../../wxdragon/rust/wxdragon" }
 
 [build-dependencies]

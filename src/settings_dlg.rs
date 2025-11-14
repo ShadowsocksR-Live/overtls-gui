@@ -1,6 +1,6 @@
 use crate::settings::{
-    Config, HttpProxySettings, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, Tun2proxySettings, center_rect,
-    create_bitmap_from_memory, save_settings,
+    Config, HttpProxySettings, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, center_rect, create_bitmap_from_memory,
+    save_settings,
 };
 use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
@@ -91,7 +91,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         cfg_lock.over_tls = Some(new_overtls);
 
         // Tun2proxy
-        let new_tun2proxy: Tun2proxySettings = tun2proxy_read();
+        let new_tun2proxy: tun2proxy::Args = tun2proxy_read();
         cfg_lock.tun2proxy = Some(new_tun2proxy);
 
         // HttpProxy
@@ -296,7 +296,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel,
     (panel, reader)
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> Tun2proxySettings + 'static) {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> tun2proxy::Args + 'static) {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
@@ -334,7 +334,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
         .build();
     let dns_addr_input = TextCtrl::builder(&panel)
         .with_size(Size::new(200, -1))
-        .with_value(&tun2proxy_settings.dns_address)
+        .with_value(&tun2proxy_settings.dns_addr.to_string())
         .build();
 
     // DNS Strategy (dropdown)
@@ -347,12 +347,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
         .into_iter()
         .map(String::from)
         .collect::<Vec<String>>();
-    let dns_strategy_selection = match tun2proxy_settings.dns_strategy.as_str() {
-        "virtual" => Some(0),
-        "over-tcp" => Some(1),
-        "direct" => Some(2),
-        _ => Some(1),
-    };
+    let dns_strategy_selection = Some(tun2proxy_settings.dns as u32);
     let dns_strategy_choice = Choice::builder(&panel)
         .with_choices(dns_strategy_choices)
         .with_selection(dns_strategy_selection)
@@ -374,22 +369,26 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    // Reader closure for Tun2proxySettings
     let reader = {
         let exit_checkbox = exit_checkbox.clone();
         let max_sessions_input = max_sessions_input.clone();
         let dns_addr_input = dns_addr_input.clone();
         let dns_strategy_choice = dns_strategy_choice.clone();
-        move || Tun2proxySettings {
-            exit_on_fatal_error: exit_checkbox.get_value(),
-            max_sessions: max_sessions_input.value() as usize,
-            dns_address: dns_addr_input.get_value(),
-            dns_strategy: match dns_strategy_choice.get_selection() {
-                Some(0) => "virtual".to_string(),
-                Some(1) => "over-tcp".to_string(),
-                Some(2) => "direct".to_string(),
-                _ => "over-tcp".to_string(),
-            },
+        move || {
+            let sel = dns_strategy_choice.get_selection().unwrap_or(1);
+            let dns = match sel {
+                0 => tun2proxy::ArgDns::Virtual,
+                1 => tun2proxy::ArgDns::OverTcp,
+                2 => tun2proxy::ArgDns::Direct,
+                _ => tun2proxy::ArgDns::OverTcp,
+            };
+            tun2proxy::Args {
+                exit_on_fatal_error: exit_checkbox.get_value(),
+                max_sessions: max_sessions_input.value() as usize,
+                dns_addr: dns_addr_input.get_value().parse().unwrap(),
+                dns,
+                ..Default::default()
+            }
         }
     };
 

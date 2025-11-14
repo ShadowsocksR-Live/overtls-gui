@@ -52,6 +52,7 @@ impl TryFrom<i32> for MenuId {
 }
 
 mod about_dlg;
+mod core;
 mod dataview;
 mod details_dlg;
 mod logger;
@@ -62,6 +63,7 @@ mod selection_ctx;
 mod settings;
 mod settings_dlg;
 mod show_qrcode_dlg;
+mod util;
 
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
@@ -348,8 +350,9 @@ fn main() -> std::io::Result<()> {
                     let appended = {
                         let mut lines = String::new();
                         for (level, module, msg) in batch.into_iter() {
-                            // Example: "[INFO module] message\n"
-                            lines.push_str(&format!("[{:<5} {}] {}\n", level, module, msg));
+                            // Example: "[2025-06-01T12:34:56Z INFO module] message\n"
+                            let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                            lines.push_str(&format!("[{ts} {:<5} {}] {}\n", level, module, msg));
                         }
                         lines
                     };
