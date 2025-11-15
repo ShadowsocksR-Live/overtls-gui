@@ -25,10 +25,12 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     // Create Notebook for tabs
     let notebook = Notebook::builder(&panel).build();
 
+    let tun2proxy_settings = cfg.lock().unwrap().tun2proxy.clone().unwrap_or_default();
+
     // Create tab pages and their readers (each page can return its own struct)
     let (common_panel, common_read) = create_common_tab(&notebook, cfg);
     let (overtls_panel, overtls_read) = create_overtls_tab(&notebook, cfg);
-    let (tun2proxy_panel, tun2proxy_read) = create_tun2proxy_tab(&notebook, cfg);
+    let (tun2proxy_panel, tun2proxy_read) = create_tun2proxy_tab(&notebook, &tun2proxy_settings);
     let (httpproxy_panel, httpproxy_read) = create_httpproxy_tab(&notebook, cfg);
     let (logging_panel, logging_read) = create_logging_tab(&notebook, cfg);
 
@@ -296,22 +298,22 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel,
     (panel, reader)
 }
 
-fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> tun2proxy::Args + 'static) {
+fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::Args) -> (Panel, impl Fn() -> tun2proxy::Args + 'static) {
     let panel = Panel::builder(parent).build();
 
     let label_size = Size::new(150, -1);
 
-    let tun2proxy_settings = cfg.lock().unwrap().tun2proxy.clone().unwrap_or_default();
+    let default_socks5_addr = tun2proxy_settings.proxy.addr.to_string();
 
-    // Exit on Fatal Error
-    let exit_label = StaticText::builder(&panel)
-        .with_label("   ")
+    // Target SOCKS5 Address:Port
+    let socks5_addr_label = StaticText::builder(&panel)
+        .with_label("Target SOCKS5 Address:Port:")
         .with_style(StaticTextStyle::AlignRight)
         .with_size(label_size)
         .build();
-    let exit_checkbox = CheckBox::builder(&panel)
-        .with_value(tun2proxy_settings.exit_on_fatal_error)
-        .with_label("Exit on Fatal Error")
+    let socks5_addr_input = TextCtrl::builder(&panel)
+        .with_size(Size::new(200, -1))
+        .with_value(&default_socks5_addr)
         .build();
 
     // Max Sessions
@@ -354,16 +356,29 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
         .with_size(Size::new(200, -1))
         .build();
 
+    // Exit on Fatal Error
+    let exit_label = StaticText::builder(&panel)
+        .with_label("   ")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+    let exit_checkbox = CheckBox::builder(&panel)
+        .with_value(tun2proxy_settings.exit_on_fatal_error)
+        .with_label("Exit on Fatal Error")
+        .build();
+
     // Using FlexGridSizer for proper left-right alignment
-    let grid = FlexGridSizer::builder(5, 2).with_vgap(10).with_hgap(16).build();
-    grid.add(&exit_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&exit_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
+    let grid = FlexGridSizer::builder(6, 2).with_vgap(10).with_hgap(16).build();
+    grid.add(&socks5_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&socks5_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&max_sessions_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&max_sessions_input, 0, SizerFlag::Expand, 0);
     grid.add(&dns_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&dns_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&dns_strategy_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&dns_strategy_choice, 0, SizerFlag::Expand, 0);
+    grid.add(&exit_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&exit_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
@@ -374,6 +389,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
         let max_sessions_input = max_sessions_input.clone();
         let dns_addr_input = dns_addr_input.clone();
         let dns_strategy_choice = dns_strategy_choice.clone();
+        let socks5_addr_input = socks5_addr_input.clone();
         move || {
             let sel = dns_strategy_choice.get_selection().unwrap_or(1);
             let dns = match sel {
@@ -382,7 +398,17 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
                 2 => tun2proxy::ArgDns::Direct,
                 _ => tun2proxy::ArgDns::OverTcp,
             };
+
+            // Apply Target SOCKS5 address:port into proxy settings
+            let target_addr: std::net::SocketAddr = socks5_addr_input.get_value().parse().unwrap();
+            let proxy = tun2proxy::ArgProxy {
+                proxy_type: tun2proxy::ProxyType::Socks5,
+                addr: target_addr,
+                ..Default::default()
+            };
+
             tun2proxy::Args {
+                proxy,
                 exit_on_fatal_error: exit_checkbox.get_value(),
                 max_sessions: max_sessions_input.value() as usize,
                 dns_addr: dns_addr_input.get_value().parse().unwrap(),
