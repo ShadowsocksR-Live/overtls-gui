@@ -205,12 +205,12 @@ fn main() -> std::io::Result<()> {
         let main_menu = Menu::builder()
             .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
             .append_separator()
-            .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+R", "Scan QR code from screen")
+            .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+Shift+Q", "Scan QR code from screen")
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
-            .append_item(MenuId::Run.into(), "Run", "Run node")
-            .append_item(MenuId::Stop.into(), "Stop", "Stop node")
+            .append_item(MenuId::Run.into(), "Run\tF5", "Run node")
+            .append_item(MenuId::Stop.into(), "Stop\tShift+F5", "Stop node")
             .append_separator()
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
             .build();
@@ -245,6 +245,7 @@ fn main() -> std::io::Result<()> {
         frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
             // Only handle the menubar case here; popup menus use a different path
             if event.is_popup() {
+                log::info!("Popup menu opened, skipping dynamic enable/disable.");
                 return;
             }
             if let Some(mbar) = frame_for_menu_open.get_menu_bar() {
@@ -256,6 +257,7 @@ fn main() -> std::io::Result<()> {
                     MenuId::ShowQrCode,
                     MenuId::Delete,
                     MenuId::Copy,
+                    MenuId::Run,
                 ];
                 for id in gated {
                     // Enable only if there is a pending selection
