@@ -71,6 +71,11 @@ use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
 use std::{cell::RefCell, rc::Rc, sync::Arc, sync::Mutex};
 use wxdragon::prelude::*;
 
+// Toolbar tool IDs (distinct from menu IDs)
+const ID_TOOL_OVERTLS: Id = ID_HIGHEST + 101;
+const ID_TOOL_TUN2PROXY: Id = ID_HIGHEST + 102;
+const ID_TOOL_HTTPPROXY: Id = ID_HIGHEST + 103;
+
 fn main() -> std::io::Result<()> {
     // #[cfg(debug_assertions)]
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -151,6 +156,41 @@ fn main() -> std::io::Result<()> {
             .add_initial_text(1, "Center Field")
             .add_initial_text(2, "Right Field")
             .build();
+
+        // --- ToolBar Setup ---
+        let tb_style = ToolBarStyle::Text | ToolBarStyle::Default;
+        if let Some(toolbar) = frame.create_tool_bar(Some(tb_style), ID_ANY as i32) {
+            let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
+
+            // OverTLS tool (icon: New or fallback)
+            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::New, ArtClient::Toolbar, None) {
+                toolbar.add_tool_bundle(ID_TOOL_OVERTLS, "OverTLS", &bundle, "Start OverTLS (SOCKS5)");
+            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::New, ArtClient::Toolbar, None) {
+                toolbar.add_tool(ID_TOOL_OVERTLS, "OverTLS", &icon, "Start OverTLS (SOCKS5)");
+            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+                toolbar.add_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
+            }
+
+            // Tun2Proxy tool (icon: FileOpen or fallback)
+            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileOpen, ArtClient::Toolbar, None) {
+                toolbar.add_tool_bundle(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bundle, "Start Tun2Proxy");
+            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileOpen, ArtClient::Toolbar, None) {
+                toolbar.add_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &icon, "Start Tun2Proxy");
+            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+                toolbar.add_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
+            }
+
+            // HTTP Proxy tool (icon: FileSave or fallback)
+            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileSave, ArtClient::Toolbar, None) {
+                toolbar.add_tool_bundle(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bundle, "Start HTTP Proxy");
+            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileSave, ArtClient::Toolbar, None) {
+                toolbar.add_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &icon, "Start HTTP Proxy");
+            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+                toolbar.add_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
+            }
+
+            toolbar.realize();
+        }
 
         // Create popup menu for taskbar icon
         let mut tray_icon_menu = Menu::builder()
@@ -271,6 +311,18 @@ fn main() -> std::io::Result<()> {
         let cfg_for_menu = cfg_clone.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
+            if id == ID_TOOL_OVERTLS {
+                menu_actions::start_overtls_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                return;
+            }
+            if id == ID_TOOL_TUN2PROXY {
+                menu_actions::start_tun2proxy_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                return;
+            }
+            if id == ID_TOOL_HTTPPROXY {
+                menu_actions::start_http_proxy_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                return;
+            }
             menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id, &cfg_for_menu);
         });
 

@@ -10,6 +10,16 @@ use wxdragon::prelude::*;
 static RUNNING_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 static RUNNING_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
+// Independent runners for toolbar actions
+static OVERTLS_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static OVERTLS_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+
+static TUN2PROXY_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static TUN2PROXY_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+
+static HTTPPROXY_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static HTTPPROXY_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
 pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &Arc<Mutex<Config>>) {
@@ -316,6 +326,168 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
     }
 }
 
+// ----- Toolbar public APIs -----
+
+pub fn is_overtls_running() -> bool {
+    OVERTLS_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+pub fn is_tun2proxy_running() -> bool {
+    TUN2PROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+pub fn is_http_proxy_running() -> bool {
+    HTTPPROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
+    if is_overtls_running() {
+        MessageDialog::builder(parent, "OverTLS 已在運行中。", "提示")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+        return;
+    }
+
+    if let Some(weak) = selection_ctx::get_pending_details() {
+        if let Some(rc) = weak.upgrade() {
+            let mut node = rc.borrow().clone();
+            let settings = cfg.lock().unwrap().clone();
+            crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
+            if let Err(e) = node.check_correctness(false) {
+                MessageDialog::builder(parent, &format!("節點配置不正確: {e}"), "無法啓動")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+                    .build()
+                    .show_modal();
+                return;
+            }
+
+            let title = node.remarks.clone().unwrap_or_else(|| "OverTLS".to_string());
+            let token = overtls::CancellationToken::new();
+            *OVERTLS_TOKEN.lock().unwrap() = Some(token.clone());
+            let running_token = OVERTLS_TOKEN.clone();
+            let running_handle = OVERTLS_HANDLE.clone();
+            let handle = std::thread::spawn(move || {
+                let res = {
+                    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+                    match rt {
+                        Ok(rt) => rt.block_on(async move { overtls::async_main(node, false, token).await.map_err(std::io::Error::other) }),
+                        Err(e) => Err(std::io::Error::other(e)),
+                    }
+                };
+                if let Err(e) = &res {
+                    log::error!("OverTLS 任務退出，錯誤: {e}");
+                }
+                if let Ok(mut token) = running_token.try_lock() {
+                    token.take().map(|t| t.cancel());
+                }
+                if let Ok(mut handle) = running_handle.try_lock() {
+                    handle.take();
+                }
+                res
+            });
+            *OVERTLS_HANDLE.lock().unwrap() = Some(handle);
+            log::info!("OverTLS '{title}' 正在啓動...");
+            let _ = model; // keep param for symmetry; not used here
+        }
+    } else {
+        MessageDialog::builder(parent, "請先選取一個節點。", "提示")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+    }
+}
+
+pub fn stop_overtls_only() -> std::io::Result<()> {
+    stop_running_node(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
+}
+
+pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
+    if is_tun2proxy_running() {
+        MessageDialog::builder(parent, "Tun2Proxy 已在運行中。", "提示")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+        return;
+    }
+
+    if let Some(weak) = selection_ctx::get_pending_details() {
+        if let Some(rc) = weak.upgrade() {
+            let node = rc.borrow().clone();
+            let settings = cfg.lock().unwrap().clone();
+            let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, &node) else {
+                MessageDialog::builder(parent, "無法生成 Tun2Proxy 參數（請檢查設置與節點）。", "無法啓動")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+                    .build()
+                    .show_modal();
+                return;
+            };
+
+            if cfg.lock().unwrap().run_as_admin.unwrap_or_default() && !run_as::is_elevated() {
+                log::warn!("需要管理員權限啓動 Tun2Proxy。");
+            }
+
+            let token = overtls::CancellationToken::new();
+            *TUN2PROXY_TOKEN.lock().unwrap() = Some(token.clone());
+            let running_token = TUN2PROXY_TOKEN.clone();
+            let running_handle = TUN2PROXY_HANDLE.clone();
+            let handle = std::thread::spawn(move || {
+                let res = {
+                    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+                    match rt {
+                        Ok(rt) => rt.block_on(async move {
+                            log::debug!("Starting tun2proxy...");
+                            unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
+                                let status = unsafe { &*status };
+                                log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
+                            }
+                            unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
+                            tun2proxy::general_run_async(t2p_args, tun2proxy::DEFAULT_MTU, cfg!(target_os = "macos"), token)
+                                .await
+                                .map(|_| ())
+                        }),
+                        Err(e) => Err(std::io::Error::other(e)),
+                    }
+                };
+                if let Err(e) = &res {
+                    log::error!("Tun2Proxy 任務退出，錯誤: {e}");
+                }
+                if let Ok(mut token) = running_token.try_lock() {
+                    token.take().map(|t| t.cancel());
+                }
+                if let Ok(mut handle) = running_handle.try_lock() {
+                    handle.take();
+                }
+                res
+            });
+            *TUN2PROXY_HANDLE.lock().unwrap() = Some(handle);
+            log::info!("Tun2Proxy 正在啓動...");
+            let _ = model; // keep param for symmetry; not used here
+        }
+    } else {
+        MessageDialog::builder(parent, "請先選取一個節點（用於設置繞過服務器 IP）。", "提示")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+    }
+}
+
+pub fn stop_tun2proxy_only() -> std::io::Result<()> {
+    stop_running_node(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
+}
+
+pub fn start_http_proxy_only(parent: &dyn WxWidget, _model: &CustomDataViewTreeModel, _cfg: &Arc<Mutex<Config>>) {
+    // Placeholder for future implementation
+    MessageDialog::builder(parent, "HTTP Proxy 尚未實作（將支持 CONNECT 轉發至 SOCKS5）。", "提示")
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build()
+        .show_modal();
+}
+
+pub fn stop_http_proxy_only() -> std::io::Result<()> {
+    stop_running_node(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
+}
+
 pub fn paste() -> std::io::Result<ServerNode> {
     use std::io::{Error, ErrorKind::InvalidData};
 
@@ -393,7 +565,7 @@ pub fn screenshot_qr_import() -> std::io::Result<ServerNode> {
 
 fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
     // Take screenshot of the primary display
-    let img = screenshot::get_screenshot(0).map_err(|e| std::io::Error::other(format!("Screenshot failed: {e}")))?;
+    let img = screen_shot::get_screenshot(0).map_err(|e| std::io::Error::other(format!("Screenshot failed: {e}")))?;
 
     // Screenshot struct: data: Vec<u8>, height, width, row_len, pixel_width
     // ARGB format, need to convert to RGBA for image crate
