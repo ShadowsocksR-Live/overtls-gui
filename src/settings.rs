@@ -41,7 +41,7 @@ pub(crate) const ICON_SIZE: u32 = 72;
 
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Self {
-        std::fs::read_to_string(path.as_ref())
+        let mut cfg = std::fs::read_to_string(path.as_ref())
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(Config {
@@ -53,7 +53,18 @@ impl Config {
                 tun2proxy: None,
                 http_proxy: None,
                 logging: None,
-            })
+            });
+
+        // sanitize window coordinates: negative values (e.g. -1) are invalid and
+        // typically result from querying a hidden/uninitialized frame.  Replace
+        // them with defaults so we don't persist bogus settings.
+        if let Some(win) = &mut cfg.window
+            && (win.position.0 < 0 || win.position.1 < 0 || win.size.0 <= 0 || win.size.1 <= 0)
+        {
+            log::warn!("Discarding invalid saved window geometry {:?}, resetting to default", win);
+            *win = WindowConfig::default();
+        }
+        cfg
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) {

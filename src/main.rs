@@ -326,27 +326,37 @@ fn main() -> std::io::Result<()> {
             menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id, &cfg_for_menu);
         });
 
-        let frame_clone = frame;
+        // clone config for use in close/destroy handlers
+        let cfg_for_close = cfg_clone.clone();
+
+        let frame_clone = frame.clone();
         frame.on_close(move |evt| {
-            if let wxdragon::WindowEventData::General(event) = &evt
-                && event.can_veto()
-            {
-                // If the close event is the window's default behavior (not from the taskbar menu or main menu)
-                // we veto the close and hide the window instead
-                log::debug!("Close event vetoed, hiding window instead of closing.");
-                event.veto();
-                frame_clone.show(false);
+            if let wxdragon::WindowEventData::General(event) = &evt {
+                // Record current position/size before hiding – otherwise the window will be
+                // hidden and get_position() returns (-1,-1) which ends up in settings.
+                let pos = frame_clone.get_position();
+                let size = frame_clone.get_size();
+                // only store positive coordinates; hide/minimized windows return (-1,-1)
+                if pos.x >= 0 && pos.y >= 0 && size.width > 0 && size.height > 0 {
+                    let win = WindowConfig::new(pos, size);
+                    cfg_for_close.lock().unwrap().window = Some(win);
+                } else {
+                    log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
+                }
+
+                if event.can_veto() {
+                    // If the close event is the window's default behavior (not from the taskbar menu or main menu)
+                    // we veto the close and hide the window instead
+                    log::debug!("Close event vetoed, hiding window instead of closing.");
+                    event.veto();
+                    frame_clone.show(false);
+                }
             }
         });
 
-        let frame_for_destroy = frame;
         let model_for_destroy = model.clone();
         let cfg_for_destroy = cfg_clone.clone();
         frame.on_destroy(move |_data| {
-            let pos = frame_for_destroy.get_position();
-            let size = frame_for_destroy.get_size();
-            let win = WindowConfig::new(pos, size);
-            cfg_for_destroy.lock().unwrap().window = Some(win);
             // Persist current servers from the model back to settings
             if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
                 list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
