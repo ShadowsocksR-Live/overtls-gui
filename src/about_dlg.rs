@@ -34,7 +34,7 @@ pub fn show_about_dialog(parent: &dyn WxWidget) {
 
     dlg.set_sizer(main_sizer, true);
 
-    let dlg_clone = dlg.clone();
+    let dlg_clone = dlg;
     ok_btn.on_click(move |_| {
         dlg_clone.end_modal(ID_CANCEL);
         log::info!("About dialog closed.");

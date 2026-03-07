@@ -125,11 +125,11 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
 
     let submit_btn = Button::builder(&panel).with_label("Submit").build();
     let cancel_btn = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
-    let dialog_clone = dialog.clone();
+    let dialog_clone = dialog;
     submit_btn.on_click(move |_data| {
         dialog_clone.end_modal(ID_OK);
     });
-    let dialog_clone2 = dialog.clone();
+    let dialog_clone2 = dialog;
     cancel_btn.on_click(move |_data| {
         dialog_clone2.end_modal(ID_CANCEL);
     });

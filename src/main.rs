@@ -203,7 +203,7 @@ fn main() -> std::io::Result<()> {
             .build();
         let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::CustomStatusItem).build();
         taskbar.set_popup_menu(&mut tray_icon_menu);
-        let frame_taskbar = frame.clone();
+        let frame_taskbar = frame;
         let cfg_for_taskbar = cfg_clone.clone();
         taskbar.on_menu(move |event| {
             let menu_id = event.get_id();
@@ -281,7 +281,7 @@ fn main() -> std::io::Result<()> {
 
         // Dynamically enable/disable Node menu items when the menu bar opens
         // Disable actions that require a selection if none is present
-        let frame_for_menu_open = frame.clone();
+        let frame_for_menu_open = frame;
         frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
             // Only handle the menubar case here; popup menus use a different path
             if event.is_popup() {
@@ -306,7 +306,7 @@ fn main() -> std::io::Result<()> {
             }
         });
 
-        let frame_for_menu = frame.clone();
+        let frame_for_menu = frame;
         let model_for_menu = model.clone();
         let cfg_for_menu = cfg_clone.clone();
         frame.on_menu(move |event| {
@@ -326,7 +326,7 @@ fn main() -> std::io::Result<()> {
             menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id, &cfg_for_menu);
         });
 
-        let frame_clone = frame.clone();
+        let frame_clone = frame;
         frame.on_close(move |evt| {
             if let wxdragon::WindowEventData::General(event) = &evt
                 && event.can_veto()
@@ -339,7 +339,7 @@ fn main() -> std::io::Result<()> {
             }
         });
 
-        let frame_for_destroy = frame.clone();
+        let frame_for_destroy = frame;
         let model_for_destroy = model.clone();
         let cfg_for_destroy = cfg_clone.clone();
         frame.on_destroy(move |_data| {
@@ -374,7 +374,7 @@ fn main() -> std::io::Result<()> {
         let logview_panel = logview::LogViewPanel::new(&main_panel);
         // Register the TextCtrl in UI-thread-local storage for callbacks
         logview::LOG_TEXT_CTRL.with(|cell| {
-            *cell.borrow_mut() = Some(logview_panel.text_ctrl.clone());
+            *cell.borrow_mut() = Some(logview_panel.text_ctrl);
         });
         sizer.add(&logview_panel.panel, 0, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
 
@@ -390,10 +390,10 @@ fn main() -> std::io::Result<()> {
 
                     // Drain any pending log tuples into a local batch
                     let mut batch: Vec<(log::Level, String, String)> = Vec::new();
-                    if let Ok(mut q) = ui_log_queue.lock() {
-                        if !q.is_empty() {
-                            batch.extend(q.drain(..));
-                        }
+                    if let Ok(mut q) = ui_log_queue.lock()
+                        && !q.is_empty()
+                    {
+                        batch.extend(q.drain(..));
                     }
 
                     if batch.is_empty() {

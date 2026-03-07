@@ -50,8 +50,8 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
     dataview.append_column(&path_col);
     dataview.associate_model(model);
 
-    let dataview_menu_panel = panel.clone();
-    let dataview_clone = dataview.clone();
+    let dataview_menu_panel = panel;
+    let dataview_clone = dataview;
     dataview.on_item_context_menu(move |event: DataViewEvent| {
         let point = event.get_position();
         log::info!("Right click at position: {:?}", point);
@@ -78,7 +78,7 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
         dataview_menu_panel.popup_menu(&mut dataview_menu, point);
     });
 
-    let frame_for_activate = frame.clone();
+    let frame_for_activate = *frame;
     dataview.on_item_activated(move |event: DataViewEvent| {
         // FIXME: Remove this comment after verifying the get_row() works as intended
         let row = event.get_row();

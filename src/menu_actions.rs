@@ -7,18 +7,21 @@ use std::thread::JoinHandle;
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
-static RUNNING_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static RUNNING_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+type CancelTokenPtr = Arc<Mutex<Option<overtls::CancellationToken>>>;
+type ThreadHandlePtr = Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>;
+
+static RUNNING_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static RUNNING_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 // Independent runners for toolbar actions
-static OVERTLS_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static OVERTLS_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static OVERTLS_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static OVERTLS_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-static TUN2PROXY_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static TUN2PROXY_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static TUN2PROXY_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static TUN2PROXY_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-static HTTPPROXY_TOKEN: LazyLock<Arc<Mutex<Option<overtls::CancellationToken>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static HTTPPROXY_HANDLE: LazyLock<Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static HTTPPROXY_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static HTTPPROXY_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
@@ -336,6 +339,7 @@ pub fn is_tun2proxy_running() -> bool {
     TUN2PROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
+#[allow(dead_code)]
 pub fn is_http_proxy_running() -> bool {
     HTTPPROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
 }
@@ -378,8 +382,10 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
                 if let Err(e) = &res {
                     log::error!("OverTLS 任務退出，錯誤: {e}");
                 }
-                if let Ok(mut token) = running_token.try_lock() {
-                    token.take().map(|t| t.cancel());
+                if let Ok(mut token) = running_token.try_lock()
+                    && let Some(t) = token.take()
+                {
+                    t.cancel();
                 }
                 if let Ok(mut handle) = running_handle.try_lock() {
                     handle.take();
@@ -398,6 +404,7 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
     }
 }
 
+#[allow(dead_code)]
 pub fn stop_overtls_only() -> std::io::Result<()> {
     stop_running_node(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
 }
@@ -452,8 +459,10 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeMod
                 if let Err(e) = &res {
                     log::error!("Tun2Proxy 任務退出，錯誤: {e}");
                 }
-                if let Ok(mut token) = running_token.try_lock() {
-                    token.take().map(|t| t.cancel());
+                if let Ok(mut token) = running_token.try_lock()
+                    && let Some(t) = token.take()
+                {
+                    t.cancel()
                 }
                 if let Ok(mut handle) = running_handle.try_lock() {
                     handle.take();
@@ -472,6 +481,7 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeMod
     }
 }
 
+#[allow(dead_code)]
 pub fn stop_tun2proxy_only() -> std::io::Result<()> {
     stop_running_node(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
 }
@@ -484,6 +494,7 @@ pub fn start_http_proxy_only(parent: &dyn WxWidget, _model: &CustomDataViewTreeM
         .show_modal();
 }
 
+#[allow(dead_code)]
 pub fn stop_http_proxy_only() -> std::io::Result<()> {
     stop_running_node(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
 }

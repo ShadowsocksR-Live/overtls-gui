@@ -26,9 +26,9 @@ impl LogViewPanel {
 // UI-thread local storage for the log TextCtrl. This avoids Send/Sync issues by
 // ensuring the control is only ever accessed on the UI thread.
 thread_local! {
-    pub static LOG_TEXT_CTRL: RefCell<Option<TextCtrl>> = RefCell::new(None);
+    pub static LOG_TEXT_CTRL: RefCell<Option<TextCtrl>> = const { RefCell::new(None) };
     // A UI-thread log ring buffer; we render from here instead of reading back from the control
-    pub static LOG_RING: RefCell<VecDeque<String>> = RefCell::new(VecDeque::new());
+    pub static LOG_RING: RefCell<VecDeque<String>> = const { RefCell::new(VecDeque::new()) };
 }
 
 /// Append pre-formatted log text to the UI-side ring buffer and render into the TextCtrl.

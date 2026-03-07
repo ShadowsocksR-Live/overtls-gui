@@ -52,7 +52,7 @@ pub fn show_qrcode_dlg(parent: &dyn WxWidget, node: &ServerNode) -> std::io::Res
 
     // OK button with id of ID_CANCEL to respond to Esc key
     let ok_btn = Button::builder(&panel).with_label("OK").with_id(ID_CANCEL).build();
-    let dialog_clone = dialog.clone();
+    let dialog_clone = dialog;
     ok_btn.on_click(move |_data| {
         dialog_clone.end_modal(ID_OK);
     });

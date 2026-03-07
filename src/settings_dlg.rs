@@ -56,7 +56,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     // OK & Cancel buttons
     let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
     let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
-    let dialog_clone = dialog.clone();
+    let dialog_clone = dialog;
     ok_button.on_click(move |_data| {
         dialog_clone.end_modal(ID_OK);
     });
@@ -240,12 +240,6 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
 
     // Build a reader closure to return OverTlsSettings from current inputs
     let reader = {
-        let host_input = host_input.clone();
-        let port_input = port_input.clone();
-        let user_input = user_input.clone();
-        let password_input = password_input.clone();
-        let pool_input = pool_input.clone();
-        let cache_dns_checkbox = cache_dns_checkbox.clone();
         move || OverTlsSettings {
             listen_host: host_input.get_value(),
             listen_port: port_input.value() as u16,
@@ -290,10 +284,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel,
     panel.set_sizer(sizer, true);
 
     // Reader returns whether Run as administrator is checked
-    let reader = {
-        let run_admin_checkbox = run_admin_checkbox.clone();
-        move || run_admin_checkbox.get_value()
-    };
+    let reader = { move || run_admin_checkbox.get_value() };
 
     (panel, reader)
 }
@@ -385,11 +376,6 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
     panel.set_sizer(sizer, true);
 
     let reader = {
-        let exit_checkbox = exit_checkbox.clone();
-        let max_sessions_input = max_sessions_input.clone();
-        let dns_addr_input = dns_addr_input.clone();
-        let dns_strategy_choice = dns_strategy_choice.clone();
-        let socks5_addr_input = socks5_addr_input.clone();
         move || {
             let sel = dns_strategy_choice.get_selection().unwrap_or(1);
             let dns = match sel {
@@ -499,10 +485,6 @@ fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Pan
 
     // Reader closure for HttpProxySettings
     let reader = {
-        let listen_addr_input = listen_addr_input.clone();
-        let server_addr_input = server_addr_input.clone();
-        let username_input = username_input.clone();
-        let password_input = password_input.clone();
         move || HttpProxySettings {
             listen_address_port: listen_addr_input.get_value(),
             s5_server_address_port: server_addr_input.get_value(),
@@ -680,14 +662,6 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
 
     // Reader closure for LoggingSettings
     let reader = {
-        let global_choice = global_choice.clone();
-        let rustls_choice = rustls_choice.clone();
-        let tokio_choice = tokio_choice.clone();
-        let tungstenite_choice = tungstenite_choice.clone();
-        let ipstack_choice = ipstack_choice.clone();
-        let overtls_choice = overtls_choice.clone();
-        let tun2proxy_choice = tun2proxy_choice.clone();
-        let auto_scroll_checkbox = auto_scroll_checkbox.clone();
         let log_levels = log_levels.clone();
         move || LoggingSettings {
             global_log_level: global_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
