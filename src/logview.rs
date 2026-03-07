@@ -9,7 +9,7 @@ pub struct LogViewPanel {
 }
 
 impl LogViewPanel {
-    pub fn new(parent: &Window) -> Self {
+    pub fn new(parent: &Panel) -> Self {
         let panel = Panel::builder(parent).build();
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
         let text_ctrl = TextCtrl::builder(&panel)

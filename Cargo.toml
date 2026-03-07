@@ -3,30 +3,6 @@ name = "overtls-gui"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-bitflags = "2.9.4"
-chrono = "0.4.42"
-dirs = "6.0"
-env_logger = "0.11.8"
-image = { version = "0.25", default-features = false, features = ["png"] }
-log = "0.4.28"
-overtls = { version = "0.3.6" }
-qrcode = "0.14.1"
-rqrr = "0.10.0"
-run-as = { version = "1.2.5", default-features = false }
-screen-shot = { version = "0.0.8" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-socks-hub = "0.2.3"
-strum = { version = "0.27", features = ["derive"] }
-tokio = { version = "1.47.1", features = ["full"] }
-tun2proxy = { version = "0.7.15", default-features = false }
-wxdragon = { path = "../../wxdragon/rust/wxdragon" }
-
-[build-dependencies]
-embed-manifest = "1.4"
-embed-resource = "3.0.6"
-
 [package.metadata.bundle]
 # Install cargo-bundle: cargo install cargo-bundle
 # macOS Usage: cargo bundle --package overtls-gui --format osx --target x86_64-apple-darwin
@@ -40,3 +16,27 @@ A overtls-gui application for wxDragon that showcases the capabilities of the wx
 It allows users to view images in various formats, demonstrating the integration of the wxDragon framework with
 the Rust programming language.
 """
+
+[dependencies]
+bitflags = "2.11.0"
+chrono = "0.4.44"
+dirs = "6.0.0"
+env_logger = "0.11.9"
+image = { version = "0.25.9", default-features = false, features = ["png"] }
+log = "0.4.29"
+overtls = { version = "0.3.7" }
+qrcode = "0.14.1"
+rqrr = "0.10.1"
+run-as = { version = "1.2.5", default-features = false }
+screen-shot = { version = "0.0.8" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+socks-hub = "0.2.3"
+strum = { version = "0.28.0", features = ["derive"] }
+tokio = { version = "1.50.0", features = ["full"] }
+tun2proxy = { version = "0.7.19", default-features = false }
+wxdragon = { path = "../wxDragon/rust/wxdragon" }
+
+[build-dependencies]
+embed-manifest = "1.5.0"
+embed-resource = "3.0.6"
