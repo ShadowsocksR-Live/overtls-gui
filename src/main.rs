@@ -198,6 +198,8 @@ fn main() -> std::io::Result<()> {
             }
 
             toolbar.realize();
+            // ensure initial button states match any existing services
+            sync_toolbar(toolbar);
         }
 
         // Create popup menu for taskbar icon
@@ -321,61 +323,30 @@ fn main() -> std::io::Result<()> {
             // special handling for the three toggle tools
             if id == ID_TOOL_OVERTLS {
                 if menu_actions::is_overtls_running() {
-                    // stop it and clear toggle state
                     let _ = menu_actions::stop_overtls_only();
-                    if let Some(tb) = &toolbar_opt {
-                        tb.toggle_tool(ID_TOOL_OVERTLS, false);
-                        tb.set_tool_short_help(ID_TOOL_OVERTLS, "Start OverTLS (SOCKS5)");
-                    }
                 } else {
                     menu_actions::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
-                    // only toggle on if it actually began running
-                    if menu_actions::is_overtls_running()
-                        && let Some(tb) = &toolbar_opt
-                    {
-                        tb.toggle_tool(ID_TOOL_OVERTLS, true);
-                        tb.set_tool_short_help(ID_TOOL_OVERTLS, "Stop OverTLS");
-                    }
                 }
-                return;
-            }
-            if id == ID_TOOL_TUN2PROXY {
+            } else if id == ID_TOOL_TUN2PROXY {
                 if menu_actions::is_tun2proxy_running() {
                     let _ = menu_actions::stop_tun2proxy_only();
-                    if let Some(tb) = &toolbar_opt {
-                        tb.toggle_tool(ID_TOOL_TUN2PROXY, false);
-                        tb.set_tool_short_help(ID_TOOL_TUN2PROXY, "Start Tun2Proxy");
-                    }
                 } else {
                     menu_actions::start_tun2proxy_only(&frame, &model_for_menu, &cfg_for_menu);
-                    if menu_actions::is_tun2proxy_running()
-                        && let Some(tb) = &toolbar_opt
-                    {
-                        tb.toggle_tool(ID_TOOL_TUN2PROXY, true);
-                        tb.set_tool_short_help(ID_TOOL_TUN2PROXY, "Stop Tun2Proxy");
-                    }
                 }
-                return;
-            }
-            if id == ID_TOOL_HTTPPROXY {
+            } else if id == ID_TOOL_HTTPPROXY {
                 if menu_actions::is_http_proxy_running() {
                     let _ = menu_actions::stop_http_proxy_only();
-                    if let Some(tb) = &toolbar_opt {
-                        tb.toggle_tool(ID_TOOL_HTTPPROXY, false);
-                        tb.set_tool_short_help(ID_TOOL_HTTPPROXY, "Start HTTP Proxy");
-                    }
                 } else {
                     menu_actions::start_http_proxy_only(&frame, &model_for_menu, &cfg_for_menu);
-                    if menu_actions::is_http_proxy_running()
-                        && let Some(tb) = &toolbar_opt
-                    {
-                        tb.toggle_tool(ID_TOOL_HTTPPROXY, true);
-                        tb.set_tool_short_help(ID_TOOL_HTTPPROXY, "Stop HTTP Proxy");
-                    }
                 }
-                return;
+            } else {
+                menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
             }
-            menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
+
+            // each time we're about to handle something, refresh toolbar state
+            if let Some(tb) = &toolbar_opt {
+                sync_toolbar(tb);
+            }
         });
 
         // clone config for use in close/destroy handlers
@@ -502,4 +473,19 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
     log::debug!("Not running as admin, trying to elevate...");
     let status = run_as::restart_self_elevated(None, true, false, Some(std::time::Duration::from_secs(10)))?;
     Ok(status.unwrap_or_default())
+}
+
+// helper to update all three toggle buttons according to actual running state
+fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
+    let running = menu_actions::is_overtls_running();
+    tb.toggle_tool(ID_TOOL_OVERTLS, running);
+    tb.set_tool_short_help(ID_TOOL_OVERTLS, if running { "Stop OverTLS" } else { "Start OverTLS (SOCKS5)" });
+
+    let t2p = menu_actions::is_tun2proxy_running();
+    tb.toggle_tool(ID_TOOL_TUN2PROXY, t2p);
+    tb.set_tool_short_help(ID_TOOL_TUN2PROXY, if t2p { "Stop Tun2Proxy" } else { "Start Tun2Proxy" });
+
+    let http = menu_actions::is_http_proxy_running();
+    tb.toggle_tool(ID_TOOL_HTTPPROXY, http);
+    tb.set_tool_short_help(ID_TOOL_HTTPPROXY, if http { "Stop HTTP Proxy" } else { "Start HTTP Proxy" });
 }
