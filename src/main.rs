@@ -198,6 +198,12 @@ fn main() -> std::io::Result<()> {
             }
 
             toolbar.realize();
+            // if the process is not elevated, tun2proxy cannot run; disable the tool
+            if !run_as::is_elevated() {
+                toolbar.enable_tool(ID_TOOL_TUN2PROXY, false);
+                toolbar.set_tool_short_help(ID_TOOL_TUN2PROXY, "Requires administrator privileges");
+            }
+
             // ensure initial button states match any existing services
             sync_toolbar(toolbar);
         }
@@ -328,7 +334,13 @@ fn main() -> std::io::Result<()> {
                     menu_actions::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
                 }
             } else if id == ID_TOOL_TUN2PROXY {
-                if menu_actions::is_tun2proxy_running() {
+                if !run_as::is_elevated() {
+                    // action not allowed without admin rights
+                    MessageDialog::builder(&frame, "Tun2Proxy requires administrator privileges.", "Permission Denied")
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+                        .build()
+                        .show_modal();
+                } else if menu_actions::is_tun2proxy_running() {
                     let _ = menu_actions::stop_tun2proxy_only();
                 } else {
                     menu_actions::start_tun2proxy_only(&frame, &model_for_menu, &cfg_for_menu);
