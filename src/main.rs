@@ -159,34 +159,42 @@ fn main() -> std::io::Result<()> {
 
         // --- ToolBar Setup ---
         let tb_style = ToolBarStyle::Text | ToolBarStyle::Default;
-        if let Some(toolbar) = frame.create_tool_bar(Some(tb_style), ID_ANY as i32) {
+        // keep a handle so we can toggle state later when tools are clicked
+        let toolbar_opt = frame.create_tool_bar(Some(tb_style), ID_ANY as i32);
+        if let Some(toolbar) = &toolbar_opt {
             let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
 
-            // OverTLS tool (icon: New or fallback)
+            // OverTLS tool (toggle)
             if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::New, ArtClient::Toolbar, None) {
-                toolbar.add_tool_bundle(ID_TOOL_OVERTLS, "OverTLS", &bundle, "Start OverTLS (SOCKS5)");
+                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
+                    toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
+                }
             } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::New, ArtClient::Toolbar, None) {
-                toolbar.add_tool(ID_TOOL_OVERTLS, "OverTLS", &icon, "Start OverTLS (SOCKS5)");
+                toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &icon, "Start OverTLS (SOCKS5)");
             } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
+                toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
             }
 
-            // Tun2Proxy tool (icon: FileOpen or fallback)
+            // Tun2Proxy tool (toggle)
             if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileOpen, ArtClient::Toolbar, None) {
-                toolbar.add_tool_bundle(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bundle, "Start Tun2Proxy");
+                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
+                    toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
+                }
             } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileOpen, ArtClient::Toolbar, None) {
-                toolbar.add_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &icon, "Start Tun2Proxy");
+                toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &icon, "Start Tun2Proxy");
             } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
+                toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
             }
 
-            // HTTP Proxy tool (icon: FileSave or fallback)
+            // HTTP Proxy tool (toggle)
             if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileSave, ArtClient::Toolbar, None) {
-                toolbar.add_tool_bundle(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bundle, "Start HTTP Proxy");
+                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
+                    toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
+                }
             } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileSave, ArtClient::Toolbar, None) {
-                toolbar.add_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &icon, "Start HTTP Proxy");
+                toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &icon, "Start HTTP Proxy");
             } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
+                toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
             }
 
             toolbar.realize();
@@ -306,36 +314,79 @@ fn main() -> std::io::Result<()> {
             }
         });
 
-        let frame_for_menu = frame;
         let model_for_menu = model.clone();
         let cfg_for_menu = cfg_clone.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
+            // special handling for the three toggle tools
             if id == ID_TOOL_OVERTLS {
-                menu_actions::start_overtls_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                if menu_actions::is_overtls_running() {
+                    // stop it and clear toggle state
+                    let _ = menu_actions::stop_overtls_only();
+                    if let Some(tb) = &toolbar_opt {
+                        tb.toggle_tool(ID_TOOL_OVERTLS, false);
+                        tb.set_tool_short_help(ID_TOOL_OVERTLS, "Start OverTLS (SOCKS5)");
+                    }
+                } else {
+                    menu_actions::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
+                    // only toggle on if it actually began running
+                    if menu_actions::is_overtls_running()
+                        && let Some(tb) = &toolbar_opt
+                    {
+                        tb.toggle_tool(ID_TOOL_OVERTLS, true);
+                        tb.set_tool_short_help(ID_TOOL_OVERTLS, "Stop OverTLS");
+                    }
+                }
                 return;
             }
             if id == ID_TOOL_TUN2PROXY {
-                menu_actions::start_tun2proxy_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                if menu_actions::is_tun2proxy_running() {
+                    let _ = menu_actions::stop_tun2proxy_only();
+                    if let Some(tb) = &toolbar_opt {
+                        tb.toggle_tool(ID_TOOL_TUN2PROXY, false);
+                        tb.set_tool_short_help(ID_TOOL_TUN2PROXY, "Start Tun2Proxy");
+                    }
+                } else {
+                    menu_actions::start_tun2proxy_only(&frame, &model_for_menu, &cfg_for_menu);
+                    if menu_actions::is_tun2proxy_running()
+                        && let Some(tb) = &toolbar_opt
+                    {
+                        tb.toggle_tool(ID_TOOL_TUN2PROXY, true);
+                        tb.set_tool_short_help(ID_TOOL_TUN2PROXY, "Stop Tun2Proxy");
+                    }
+                }
                 return;
             }
             if id == ID_TOOL_HTTPPROXY {
-                menu_actions::start_http_proxy_only(&frame_for_menu, &model_for_menu, &cfg_for_menu);
+                if menu_actions::is_http_proxy_running() {
+                    let _ = menu_actions::stop_http_proxy_only();
+                    if let Some(tb) = &toolbar_opt {
+                        tb.toggle_tool(ID_TOOL_HTTPPROXY, false);
+                        tb.set_tool_short_help(ID_TOOL_HTTPPROXY, "Start HTTP Proxy");
+                    }
+                } else {
+                    menu_actions::start_http_proxy_only(&frame, &model_for_menu, &cfg_for_menu);
+                    if menu_actions::is_http_proxy_running()
+                        && let Some(tb) = &toolbar_opt
+                    {
+                        tb.toggle_tool(ID_TOOL_HTTPPROXY, true);
+                        tb.set_tool_short_help(ID_TOOL_HTTPPROXY, "Stop HTTP Proxy");
+                    }
+                }
                 return;
             }
-            menu_actions::handle_menu_command(&frame_for_menu, &model_for_menu, id, &cfg_for_menu);
+            menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
         });
 
         // clone config for use in close/destroy handlers
         let cfg_for_close = cfg_clone.clone();
 
-        let frame_clone = frame.clone();
         frame.on_close(move |evt| {
             if let wxdragon::WindowEventData::General(event) = &evt {
                 // Record current position/size before hiding – otherwise the window will be
                 // hidden and get_position() returns (-1,-1) which ends up in settings.
-                let pos = frame_clone.get_position();
-                let size = frame_clone.get_size();
+                let pos = frame.get_position();
+                let size = frame.get_size();
                 // only store positive coordinates; hide/minimized windows return (-1,-1)
                 if pos.x >= 0 && pos.y >= 0 && size.width > 0 && size.height > 0 {
                     let win = WindowConfig::new(pos, size);
@@ -349,7 +400,7 @@ fn main() -> std::io::Result<()> {
                     // we veto the close and hide the window instead
                     log::debug!("Close event vetoed, hiding window instead of closing.");
                     event.veto();
-                    frame_clone.show(false);
+                    frame.show(false);
                 }
             }
         });
