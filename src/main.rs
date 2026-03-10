@@ -349,7 +349,7 @@ fn main() -> std::io::Result<()> {
                 if menu_actions::is_http_proxy_running() {
                     let _ = menu_actions::stop_http_proxy_only();
                 } else {
-                    menu_actions::start_http_proxy_only(&frame, &model_for_menu, &cfg_for_menu);
+                    menu_actions::start_http_proxy_only(&frame, &cfg_for_menu);
                 }
             } else {
                 menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);

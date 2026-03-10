@@ -347,9 +347,11 @@ pub fn is_tun2proxy_running() -> bool {
         .unwrap_or(false)
 }
 
-#[allow(dead_code)]
 pub fn is_http_proxy_running() -> bool {
-    HTTPPROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+    HTTPPROXY_HANDLE
+        .lock()
+        .map(|opt| opt.as_ref().map(|h| !h.is_finished()).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
@@ -393,7 +395,7 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
     let running_handle = OVERTLS_HANDLE.clone();
     let overtls_running_node = OVERTLS_RUNNING_NODE.clone();
     let handle = std::thread::spawn(move || {
-        overtls_running_node.lock().unwrap().replace(node.clone().into());
+        overtls_running_node.lock().unwrap().replace(node.clone());
         let res = {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
             match rt {
@@ -502,15 +504,75 @@ pub fn stop_tun2proxy_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
 }
 
-pub fn start_http_proxy_only(parent: &dyn WxWidget, _model: &CustomDataViewTreeModel, _cfg: &Arc<Mutex<Config>>) {
-    // Placeholder for future implementation
-    MessageDialog::builder(parent, "HTTP Proxy 尚未實作（將支持 CONNECT 轉發至 SOCKS5）。", "提示")
-        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-        .build()
-        .show_modal();
+pub fn start_http_proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
+    if is_http_proxy_running() {
+        MessageDialog::builder(parent, "HTTP proxy is already running.", "Info")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+        return;
+    }
+
+    // prepare configuration from saved settings
+    let http = cfg.lock().unwrap().http_proxy.clone().unwrap_or_default();
+    // construct socks-hub config strings
+    let listen = format!("http://{}", http.listen_address_port);
+
+    // if OverTLS node is running, point the hub's remote server at its listen address
+    let remote = if let Some(overtls_cfg) = get_running_overtls_node()
+        && let Some(client) = overtls_cfg.client.as_ref()
+    {
+        format!("socks5://{}:{}", client.listen_host, client.listen_port)
+    } else {
+        format!("socks5://{}", http.s5_server_address_port)
+    };
+
+    let hub_cfg = socks_hub::Config::new(&listen, &remote);
+
+    let token = overtls::CancellationToken::new();
+    *HTTPPROXY_TOKEN.lock().unwrap() = Some(token.clone());
+    let running_token = HTTPPROXY_TOKEN.clone();
+    let running_handle = HTTPPROXY_HANDLE.clone();
+
+    // prepare a simple callback that logs the actual listen address
+    fn log_listen(addr: std::net::SocketAddr) {
+        log::info!("HTTP proxy listening on {}", addr);
+    }
+
+    let handle = std::thread::spawn(move || {
+        // socks-hub provides async entry point
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+        let res = match rt {
+            Ok(rt) => rt.block_on(async move {
+                log::debug!("Starting http proxy (socks-hub)...");
+                socks_hub::main_entry(&hub_cfg, token.clone(), Some(log_listen))
+                    .await
+                    .map_err(std::io::Error::other)
+            }),
+            Err(e) => Err(std::io::Error::other(e)),
+        };
+
+        if let Err(e) = &res {
+            log::error!("HTTP proxy task exited with error: {e}");
+        }
+
+        if let Ok(mut token) = running_token.try_lock()
+            && let Some(t) = token.take()
+        {
+            t.cancel();
+        }
+        if let Ok(mut handle) = running_handle.try_lock() {
+            handle.take();
+        }
+
+        res
+    });
+
+    *HTTPPROXY_HANDLE.lock().unwrap() = Some(handle);
+    log::info!("HTTP proxy is starting...");
 }
 
-#[allow(dead_code)]
+#[inline]
 pub fn stop_http_proxy_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
 }
