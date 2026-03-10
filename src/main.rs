@@ -343,7 +343,7 @@ fn main() -> std::io::Result<()> {
                 } else if menu_actions::is_tun2proxy_running() {
                     let _ = menu_actions::stop_tun2proxy_only();
                 } else {
-                    menu_actions::start_tun2proxy_only(&frame, &model_for_menu, &cfg_for_menu);
+                    menu_actions::start_tun2proxy_only(&frame, &cfg_for_menu);
                 }
             } else if id == ID_TOOL_HTTPPROXY {
                 if menu_actions::is_http_proxy_running() {

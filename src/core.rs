@@ -40,30 +40,41 @@ pub fn main_task_block(
     })
 }
 
-pub fn cook_tun2proxy_config(settings: &crate::settings::Config, config: &ServerNode) -> Option<tun2proxy::Args> {
-    let remote_server_ip = config.client.as_ref().and_then(|c| c.server_ip_addr())?;
+pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: Option<&ServerNode>) -> Option<tun2proxy::Args> {
+    // start from user-configured arguments so bypass list and other options are preserved
+    let mut result = settings.tun2proxy.clone().unwrap_or_default();
 
-    let mut result = tun2proxy::Args::default();
-    result.bypass(remote_server_ip.ip().into());
+    // ensure routing setup is requested regardless of stored value
     result.setup(true);
 
+    // if running node exists and has client config, add the remote server IP to bypass list and set up proxy config for it
+    // otherwise, if no running node or client config, just use the user-configured tun2proxy args without modification
+    if let Some(running_node) = running_node
+        && let Some(client) = running_node.client.as_ref()
     {
+        let remote_server_ip = client.server_ip_addr()?;
+
+        // always bypass the remote server's own IP so traffic directed to it
+        // does not go through the tunnel
+        result.bypass(remote_server_ip.ip().into());
+
+        // convert host:port into a network SocketAddr using string parsing
+        let listen_addr: std::net::SocketAddr = format!("{}:{}", client.listen_host, client.listen_port).parse().ok()?;
+
         let mut proxy = tun2proxy::ArgProxy {
             proxy_type: tun2proxy::ProxyType::Socks5,
+            addr: listen_addr,
             ..Default::default()
         };
 
-        let ip: std::net::IpAddr = settings.over_tls.as_ref().unwrap().listen_host.parse().ok()?;
-        proxy.addr = (ip, settings.over_tls.as_ref().unwrap().listen_port).into();
-
         proxy.credentials = match (
-            &settings.over_tls.as_ref().unwrap().listen_user.as_ref().map_or("", |v| v),
-            &settings.over_tls.as_ref().unwrap().listen_password.as_ref().map_or("", |v| v),
+            &client.listen_user.as_ref().map_or("", |v| v),
+            &client.listen_password.as_ref().map_or("", |v| v),
         ) {
             (u, p) if u.is_empty() && p.is_empty() => None,
             _ => Some(tun2proxy::UserKey::new(
-                settings.over_tls.as_ref().unwrap().listen_user.clone().unwrap_or_default(),
-                settings.over_tls.as_ref().unwrap().listen_password.clone().unwrap_or_default(),
+                client.listen_user.clone().unwrap_or_default(),
+                client.listen_password.clone().unwrap_or_default(),
             )),
         };
 

@@ -16,6 +16,7 @@ static RUNNING_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mut
 // Independent runners for toolbar actions
 static OVERTLS_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 static OVERTLS_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static OVERTLS_RUNNING_NODE: LazyLock<Arc<Mutex<Option<ServerNode>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 static TUN2PROXY_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 static TUN2PROXY_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
@@ -288,7 +289,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                     return;
                 }
 
-                let tun2proxy_args = crate::core::cook_tun2proxy_config(&settings, &node);
+                let tun2proxy_args = crate::core::cook_tun2proxy_config(&settings, Some(&node));
 
                 let title = node.remarks.clone().unwrap_or_default();
                 let token = overtls::CancellationToken::new();
@@ -340,7 +341,10 @@ pub fn is_overtls_running() -> bool {
 }
 
 pub fn is_tun2proxy_running() -> bool {
-    TUN2PROXY_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+    TUN2PROXY_HANDLE
+        .lock()
+        .map(|opt| opt.as_ref().map(|h| !h.is_finished()).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 #[allow(dead_code)]
@@ -387,7 +391,9 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
     *OVERTLS_TOKEN.lock().unwrap() = Some(token.clone());
     let running_token = OVERTLS_TOKEN.clone();
     let running_handle = OVERTLS_HANDLE.clone();
+    let overtls_running_node = OVERTLS_RUNNING_NODE.clone();
     let handle = std::thread::spawn(move || {
+        overtls_running_node.lock().unwrap().replace(node.clone().into());
         let res = {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
             match rt {
@@ -406,6 +412,7 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
         if let Ok(mut handle) = running_handle.try_lock() {
             handle.take();
         }
+        overtls_running_node.lock().unwrap().take();
         res
     });
     *OVERTLS_HANDLE.lock().unwrap() = Some(handle);
@@ -413,12 +420,25 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
     let _ = model; // keep param for symmetry; not used here
 }
 
+pub fn get_running_overtls_node() -> Option<overtls::Config> {
+    OVERTLS_RUNNING_NODE.lock().unwrap().clone()
+}
+
 #[inline]
 pub fn stop_overtls_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
 }
 
-pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
+pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
+    if !run_as::is_elevated() {
+        let msg = "Tun2Proxy requires elevated privileges to run. Please restart the application as administrator.";
+        MessageDialog::builder(parent, msg, "Insufficient Privileges")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+            .build()
+            .show_modal();
+        return;
+    }
+
     if is_tun2proxy_running() {
         MessageDialog::builder(parent, "Tun2Proxy is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -427,70 +447,57 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeMod
         return;
     }
 
-    if let Some(weak) = selection_ctx::get_pending_details() {
-        if let Some(rc) = weak.upgrade() {
-            let node = rc.borrow().clone();
-            let settings = cfg.lock().unwrap().clone();
-            let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, &node) else {
-                MessageDialog::builder(parent, "無法生成 Tun2Proxy 參數（請檢查設置與節點）。", "無法啓動")
-                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                    .build()
-                    .show_modal();
-                return;
-            };
+    let node = get_running_overtls_node();
 
-            if cfg.lock().unwrap().run_as_admin.unwrap_or_default() && !run_as::is_elevated() {
-                log::warn!("需要管理員權限啓動 Tun2Proxy。");
-            }
-
-            let token = overtls::CancellationToken::new();
-            *TUN2PROXY_TOKEN.lock().unwrap() = Some(token.clone());
-            let running_token = TUN2PROXY_TOKEN.clone();
-            let running_handle = TUN2PROXY_HANDLE.clone();
-            let handle = std::thread::spawn(move || {
-                let res = {
-                    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
-                    match rt {
-                        Ok(rt) => rt.block_on(async move {
-                            log::debug!("Starting tun2proxy...");
-                            unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
-                                let status = unsafe { &*status };
-                                log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
-                            }
-                            unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
-                            tun2proxy::general_run_async(t2p_args, tun2proxy::DEFAULT_MTU, cfg!(target_os = "macos"), token)
-                                .await
-                                .map(|_| ())
-                        }),
-                        Err(e) => Err(std::io::Error::other(e)),
-                    }
-                };
-                if let Err(e) = &res {
-                    log::error!("Tun2Proxy 任務退出，錯誤: {e}");
-                }
-                if let Ok(mut token) = running_token.try_lock()
-                    && let Some(t) = token.take()
-                {
-                    t.cancel()
-                }
-                if let Ok(mut handle) = running_handle.try_lock() {
-                    handle.take();
-                }
-                res
-            });
-            *TUN2PROXY_HANDLE.lock().unwrap() = Some(handle);
-            log::info!("Tun2Proxy 正在啓動...");
-            let _ = model; // keep param for symmetry; not used here
-        }
-    } else {
-        MessageDialog::builder(parent, "請先選取一個節點（用於設置繞過服務器 IP）。", "提示")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+    let settings = cfg.lock().unwrap().clone();
+    let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, node.as_ref()) else {
+        MessageDialog::builder(parent, "Failed to prepare Tun2Proxy configuration. Please check your settings and make sure the running node has a valid client configuration.", "Error")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
             .build()
             .show_modal();
-    }
+        return;
+    };
+
+    let token = overtls::CancellationToken::new();
+    *TUN2PROXY_TOKEN.lock().unwrap() = Some(token.clone());
+    let running_token = TUN2PROXY_TOKEN.clone();
+    let running_handle = TUN2PROXY_HANDLE.clone();
+    let handle = std::thread::spawn(move || {
+        let res = {
+            let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+            match rt {
+                Ok(rt) => rt.block_on(async move {
+                    log::debug!("Starting tun2proxy...");
+                    unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
+                        let status = unsafe { &*status };
+                        log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
+                    }
+                    unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
+                    tun2proxy::general_run_async(t2p_args, tun2proxy::DEFAULT_MTU, cfg!(target_os = "macos"), token)
+                        .await
+                        .map(|_| ())
+                }),
+                Err(e) => Err(std::io::Error::other(e)),
+            }
+        };
+        if let Err(e) = &res {
+            log::error!("Tun2Proxy unexpectedly exited with error: {e}");
+        }
+        if let Ok(mut token) = running_token.try_lock()
+            && let Some(t) = token.take()
+        {
+            t.cancel()
+        }
+        if let Ok(mut handle) = running_handle.try_lock() {
+            handle.take();
+        }
+        res
+    });
+    *TUN2PROXY_HANDLE.lock().unwrap() = Some(handle);
+    log::info!("Tun2Proxy is starting...");
 }
 
-#[allow(dead_code)]
+#[inline]
 pub fn stop_tun2proxy_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
 }

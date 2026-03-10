@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
 
 pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
-    let (w, h) = (600, 400);
+    let (w, h) = (600, 440);
     let (x, y) = center_rect(parent, w, h);
 
     // Create a generic dialog using the new builder
@@ -358,8 +358,29 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
         .with_label("Exit on Fatal Error")
         .build();
 
+    // Bypass list label and multiline text control
+    let bypass_label = StaticText::builder(&panel)
+        .with_label("Bypass IPs (CIDR):")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+    let bypass_input = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::MultiLine)
+        .with_size(Size::new(200, 80))
+        .build();
+    // populate initial bypass lines
+    if !tun2proxy_settings.bypass.is_empty() {
+        let text = tun2proxy_settings
+            .bypass
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        bypass_input.set_value(&text);
+    }
+
     // Using FlexGridSizer for proper left-right alignment
-    let grid = FlexGridSizer::builder(6, 2).with_vgap(10).with_hgap(16).build();
+    let grid = FlexGridSizer::builder(7, 2).with_vgap(10).with_hgap(16).build();
     grid.add(&socks5_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&socks5_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&max_sessions_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
@@ -368,6 +389,8 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
     grid.add(&dns_addr_input, 0, SizerFlag::Expand, 0);
     grid.add(&dns_strategy_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&dns_strategy_choice, 0, SizerFlag::Expand, 0);
+    grid.add(&bypass_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&bypass_input, 0, SizerFlag::Expand, 0);
     grid.add(&exit_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&exit_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
 
@@ -393,12 +416,33 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
                 ..Default::default()
             };
 
+            // parse bypass list from multiline text area
+            let bypass_vec = bypass_input
+                .get_value()
+                .lines()
+                .filter_map(|line| {
+                    let t = line.trim();
+                    if t.is_empty() {
+                        None
+                    } else {
+                        match t.parse() {
+                            Ok(cid) => Some(cid),
+                            Err(_) => {
+                                log::warn!("Invalid CIDR entered in bypass list: {}", t);
+                                None
+                            }
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+
             tun2proxy::Args {
                 proxy,
                 exit_on_fatal_error: exit_checkbox.get_value(),
                 max_sessions: max_sessions_input.value() as usize,
                 dns_addr: dns_addr_input.get_value().parse().unwrap(),
                 dns,
+                bypass: bypass_vec,
                 ..Default::default()
             }
         }
