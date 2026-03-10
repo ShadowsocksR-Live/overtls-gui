@@ -75,6 +75,7 @@ use wxdragon::prelude::*;
 const ID_TOOL_OVERTLS: Id = ID_HIGHEST + 101;
 const ID_TOOL_TUN2PROXY: Id = ID_HIGHEST + 102;
 const ID_TOOL_HTTPPROXY: Id = ID_HIGHEST + 103;
+const ID_TOOL_SETTINGS: Id = MenuId::Settings as Id; // simple button to open settings
 
 fn main() -> std::io::Result<()> {
     // #[cfg(debug_assertions)]
@@ -158,11 +159,31 @@ fn main() -> std::io::Result<()> {
             .build();
 
         // --- ToolBar Setup ---
-        let tb_style = ToolBarStyle::Text | ToolBarStyle::Default;
+        // Use flat style to ensure separators are drawn visibly
+        let tb_style = ToolBarStyle::Text | ToolBarStyle::Default | ToolBarStyle::Flat;
         // keep a handle so we can toggle state later when tools are clicked
         let toolbar_opt = frame.create_tool_bar(Some(tb_style), ID_ANY as i32);
         if let Some(toolbar) = &toolbar_opt {
             let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
+
+            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::HelpSettings, ArtClient::Toolbar, None) {
+                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
+                    toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &bmp, "Open Settings");
+                }
+            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::HelpSettings, ArtClient::Toolbar, None) {
+                toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &icon, "Open Settings");
+            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+                toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &bmp, "Open Settings");
+            }
+
+            // toolbar.add_separator();
+            let sep: StaticLine = StaticLine::builder(toolbar)
+                .with_size(Size::new(1, icon_size.height + 8))
+                .with_style(StaticLineStyle::Vertical)
+                .build();
+            sep.set_background_color(colours::gray::GRAY_600);
+            sep.set_foreground_color(colours::gray::GRAY_600);
+            toolbar.add_control(&sep);
 
             // OverTLS tool (toggle)
             if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::New, ArtClient::Toolbar, None) {
