@@ -318,7 +318,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
 
         MenuId::Stop => {
             log::info!("Menu/Toolbar: Stop clicked!");
-            if let Err(e) = stop_running_node(&RUNNING_TOKEN, &RUNNING_HANDLE) {
+            if let Err(e) = stop_thread_with_cancel_token(&RUNNING_TOKEN, &RUNNING_HANDLE) {
                 log::error!("Failed to stop running node: {e}");
             }
         }
@@ -332,7 +332,11 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
 // ----- Toolbar public APIs -----
 
 pub fn is_overtls_running() -> bool {
-    OVERTLS_TOKEN.lock().map(|g| g.is_some()).unwrap_or(false)
+    // lock the handle and return true if it exists and the thread isn't finished
+    OVERTLS_HANDLE
+        .lock()
+        .map(|opt| opt.as_ref().map(|h| !h.is_finished()).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 pub fn is_tun2proxy_running() -> bool {
@@ -346,72 +350,77 @@ pub fn is_http_proxy_running() -> bool {
 
 pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
     if is_overtls_running() {
-        MessageDialog::builder(parent, "OverTLS 已在運行中。", "提示")
+        MessageDialog::builder(parent, "OverTLS is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
             .build()
             .show_modal();
         return;
     }
 
-    if let Some(weak) = selection_ctx::get_pending_details() {
-        if let Some(rc) = weak.upgrade() {
-            let mut node = rc.borrow().clone();
-            let settings = cfg.lock().unwrap().clone();
-            crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
-            if let Err(e) = node.check_correctness(false) {
-                MessageDialog::builder(parent, &format!("節點配置不正確: {e}"), "無法啓動")
-                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                    .build()
-                    .show_modal();
-                return;
-            }
-
-            let title = node.remarks.clone().unwrap_or_else(|| "OverTLS".to_string());
-            let token = overtls::CancellationToken::new();
-            *OVERTLS_TOKEN.lock().unwrap() = Some(token.clone());
-            let running_token = OVERTLS_TOKEN.clone();
-            let running_handle = OVERTLS_HANDLE.clone();
-            let handle = std::thread::spawn(move || {
-                let res = {
-                    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
-                    match rt {
-                        Ok(rt) => rt.block_on(async move { overtls::async_main(node, false, token).await.map_err(std::io::Error::other) }),
-                        Err(e) => Err(std::io::Error::other(e)),
-                    }
-                };
-                if let Err(e) = &res {
-                    log::error!("OverTLS 任務退出，錯誤: {e}");
-                }
-                if let Ok(mut token) = running_token.try_lock()
-                    && let Some(t) = token.take()
-                {
-                    t.cancel();
-                }
-                if let Ok(mut handle) = running_handle.try_lock() {
-                    handle.take();
-                }
-                res
-            });
-            *OVERTLS_HANDLE.lock().unwrap() = Some(handle);
-            log::info!("OverTLS '{title}' 正在啓動...");
-            let _ = model; // keep param for symmetry; not used here
-        }
-    } else {
-        MessageDialog::builder(parent, "請先選取一個節點。", "提示")
+    let Some(weak) = selection_ctx::get_pending_details() else {
+        MessageDialog::builder(parent, "Please select a node first.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
             .build()
             .show_modal();
+        return;
+    };
+    let Some(rc) = weak.upgrade() else {
+        MessageDialog::builder(parent, "The selected node does not exist or is invalid.", "Info")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build()
+            .show_modal();
+        return;
+    };
+    let mut node = rc.borrow().clone();
+    let settings = cfg.lock().unwrap().clone();
+    crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
+    if let Err(e) = node.check_correctness(false) {
+        MessageDialog::builder(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+            .build()
+            .show_modal();
+        return;
     }
+
+    let title = node.remarks.clone().unwrap_or_else(|| "OverTLS".to_string());
+    let token = overtls::CancellationToken::new();
+    *OVERTLS_TOKEN.lock().unwrap() = Some(token.clone());
+    let running_token = OVERTLS_TOKEN.clone();
+    let running_handle = OVERTLS_HANDLE.clone();
+    let handle = std::thread::spawn(move || {
+        let res = {
+            let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
+            match rt {
+                Ok(rt) => rt.block_on(async move { overtls::async_main(node, false, token).await.map_err(std::io::Error::other) }),
+                Err(e) => Err(std::io::Error::other(e)),
+            }
+        };
+        if let Err(e) = &res {
+            log::error!("OverTLS unexpectedly exited with error: {e}");
+        }
+        if let Ok(mut token) = running_token.try_lock()
+            && let Some(t) = token.take()
+        {
+            t.cancel();
+        }
+        if let Ok(mut handle) = running_handle.try_lock() {
+            handle.take();
+        }
+        res
+    });
+    *OVERTLS_HANDLE.lock().unwrap() = Some(handle);
+    log::info!("OverTLS '{title}' is starting...");
+    let _ = model; // keep param for symmetry; not used here
 }
 
-#[allow(dead_code)]
+#[inline]
 pub fn stop_overtls_only() -> std::io::Result<()> {
-    stop_running_node(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
+    stop_thread_with_cancel_token(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
 }
 
 pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
     if is_tun2proxy_running() {
-        MessageDialog::builder(parent, "Tun2Proxy 已在運行中。", "提示")
+        MessageDialog::builder(parent, "Tun2Proxy is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
             .build()
             .show_modal();
@@ -483,7 +492,7 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, model: &CustomDataViewTreeMod
 
 #[allow(dead_code)]
 pub fn stop_tun2proxy_only() -> std::io::Result<()> {
-    stop_running_node(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
+    stop_thread_with_cancel_token(&TUN2PROXY_TOKEN, &TUN2PROXY_HANDLE)
 }
 
 pub fn start_http_proxy_only(parent: &dyn WxWidget, _model: &CustomDataViewTreeModel, _cfg: &Arc<Mutex<Config>>) {
@@ -496,7 +505,7 @@ pub fn start_http_proxy_only(parent: &dyn WxWidget, _model: &CustomDataViewTreeM
 
 #[allow(dead_code)]
 pub fn stop_http_proxy_only() -> std::io::Result<()> {
-    stop_running_node(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
+    stop_thread_with_cancel_token(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
 }
 
 pub fn paste() -> std::io::Result<ServerNode> {
@@ -601,22 +610,18 @@ fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
     Ok(dyn_img)
 }
 
-fn stop_running_node(
-    running_token: &Arc<Mutex<Option<overtls::CancellationToken>>>,
-    running_handle: &Arc<Mutex<Option<std::thread::JoinHandle<std::io::Result<()>>>>>,
-) -> std::io::Result<()> {
-    let mut err_info = None;
+fn stop_thread_with_cancel_token(running_token: &CancelTokenPtr, running_handle: &ThreadHandlePtr) -> std::io::Result<()> {
     let f1 = |e| std::io::Error::other(format!("running_token lock error: {e}"));
     if let Some(token) = running_token.lock().map_err(f1)?.take() {
         token.cancel();
     } else {
-        err_info = Some("No running node.".to_string());
+        return Err(std::io::Error::other("No running node."));
     }
     let f2 = |e| std::io::Error::other(format!("running_handle lock error: {e}"));
     if let Some(handle) = running_handle.lock().map_err(f2)?.take()
         && let Err(e) = crate::util::thread_handle_join_with_timeout(handle, 3000)
     {
-        err_info = Some(format!("Failed to join running thread: {e:?}"));
+        return Err(std::io::Error::other(format!("Failed to join running thread: {e}")));
     }
-    err_info.map(|e| Err(std::io::Error::other(e))).unwrap_or(Ok(()))
+    Ok(())
 }
