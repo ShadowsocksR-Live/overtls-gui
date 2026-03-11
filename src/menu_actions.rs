@@ -10,9 +10,6 @@ use wxdragon::prelude::*;
 type CancelTokenPtr = Arc<Mutex<Option<overtls::CancellationToken>>>;
 type ThreadHandlePtr = Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>;
 
-static RUNNING_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static RUNNING_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-
 // Independent runners for toolbar actions
 static OVERTLS_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 static OVERTLS_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
@@ -257,71 +254,16 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             }
         }
 
-        MenuId::Run => {
-            log::info!("Menu/Toolbar: Run clicked!");
-            if let Some(weak) = selection_ctx::get_pending_details()
-                && let Some(rc) = weak.upgrade()
-            {
-                let mut node = rc.borrow().clone();
-
-                // "Please select a node first."
-                // "Selected node not found."
-                // Stop node first if it's running
-
-                if RUNNING_TOKEN.lock().unwrap().is_some() {
-                    log::warn!("A node is already running. Please stop it first.");
-                    return;
-                }
-
-                let settings = cfg.lock().unwrap().clone();
-
-                // let system_settings = state_clone.borrow().system_settings.clone().unwrap_or_default();
-                // let tun2proxy_enable = system_settings.tun2proxy_enable.unwrap_or_default();
-                // if tun2proxy_enable && !run_as::is_elevated() {
-                //     // "Requires admin privileges. Please restart the application as administrator."
-                //     return;
-                // }
-
-                crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
-
-                if let Err(e) = node.check_correctness(false) {
-                    log::warn!("Node configuration is incorrect: {e}. Please check the settings.");
-                    return;
-                }
-
-                let tun2proxy_args = crate::core::cook_tun2proxy_config(&settings, Some(&node));
-
-                let title = node.remarks.clone().unwrap_or_default();
-                let token = overtls::CancellationToken::new();
-                *RUNNING_TOKEN.lock().unwrap() = Some(token.clone());
-                let title_clone = title.clone();
-                let running_token = RUNNING_TOKEN.clone();
-                let running_handle = RUNNING_HANDLE.clone();
-                let handle = std::thread::spawn(move || {
-                    let res = crate::core::main_task_block(node, tun2proxy_args, token);
-                    if let Err(e) = &res {
-                        log::error!("Node '{title_clone}' exited with error: {e}");
-                    }
-                    if let Ok(mut token) = running_token.try_lock()
-                        && let Some(token) = token.take()
-                    {
-                        token.cancel();
-                    }
-                    if let Ok(mut handle) = running_handle.try_lock() {
-                        handle.take();
-                    }
-                    res
-                });
-                *RUNNING_HANDLE.lock().unwrap() = Some(handle);
-                log::debug!("Node '{title}' is starting...");
-            }
+        MenuId::OverTls => {
+            log::info!("Menu/Toolbar: OverTLS clicked!");
         }
 
-        MenuId::Stop => {
-            log::info!("Menu/Toolbar: Stop clicked!");
-            if let Err(e) = stop_thread_with_cancel_token(&RUNNING_TOKEN, &RUNNING_HANDLE) {
-                log::error!("Failed to stop running node: {e}");
-            }
+        MenuId::Tun2proxy => {
+            log::info!("Menu/Toolbar: Tun2proxy clicked!");
+        }
+
+        MenuId::HttpProxy => {
+            log::info!("Menu/Toolbar: HttpProxy clicked!");
         }
 
         _ => {
@@ -575,6 +517,19 @@ pub fn start_http_proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
 #[inline]
 pub fn stop_http_proxy_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&HTTPPROXY_TOKEN, &HTTPPROXY_HANDLE)
+}
+
+pub fn stop_all_services() -> std::io::Result<()> {
+    if let Err(e) = stop_overtls_only() {
+        log::debug!("Failed to stop OverTLS: {e}");
+    }
+    if let Err(e) = stop_tun2proxy_only() {
+        log::debug!("Failed to stop Tun2Proxy: {e}");
+    }
+    if let Err(e) = stop_http_proxy_only() {
+        log::debug!("Failed to stop HTTP proxy: {e}");
+    }
+    Ok(())
 }
 
 pub fn paste() -> std::io::Result<ServerNode> {

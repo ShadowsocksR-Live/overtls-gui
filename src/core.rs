@@ -11,35 +11,6 @@ pub fn merge_system_settings_to_node_config(ot_settings: &OverTlsSettings, node_
     }
 }
 
-pub fn main_task_block(
-    config: ServerNode,
-    tun2proxy_args: Option<tun2proxy::Args>,
-    token: overtls::CancellationToken,
-) -> std::io::Result<()> {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(async move {
-        let token_tun2proxy = token.clone();
-        let token_overtls = token.clone();
-
-        let res = tokio::select! {
-            res = tun2proxy_main_task(tun2proxy_args, token_tun2proxy) => {
-                if let Err(err) = &res {
-                    log::error!("tun2proxy task error: {err}");
-                }
-                res.map(|_| ())
-            }
-            res = overtls::async_main(config, false, token_overtls) => {
-                if let Err(err) = &res {
-                    log::error!("overtls task error: {err}");
-                }
-                res.map_err(std::io::Error::other)
-            }
-        };
-        token.cancel();
-        res
-    })
-}
-
 pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: Option<&ServerNode>) -> Option<tun2proxy::Args> {
     // start from user-configured arguments so bypass list and other options are preserved
     let mut result = settings.tun2proxy.clone().unwrap_or_default();
@@ -82,27 +53,4 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: O
     }
 
     Some(result)
-}
-
-async fn tun2proxy_main_task(args: Option<tun2proxy::Args>, shutdown_token: overtls::CancellationToken) -> std::io::Result<usize> {
-    if let Some(tun2proxy_args) = args {
-        _tun2proxy_main_task(tun2proxy_args, shutdown_token).await
-    } else {
-        std::future::pending::<std::io::Result<usize>>().await
-    }
-}
-
-async fn _tun2proxy_main_task(args: tun2proxy::Args, shutdown_token: overtls::CancellationToken) -> std::io::Result<usize> {
-    log::debug!("Starting tun2proxy...");
-    unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
-        let status = unsafe { &*status };
-        log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
-    }
-    unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
-
-    let ret = tun2proxy::general_run_async(args, tun2proxy::DEFAULT_MTU, cfg!(target_os = "macos"), shutdown_token).await;
-    if let Err(err) = &ret {
-        log::error!("tun2proxy main loop error: {err}");
-    }
-    ret
 }

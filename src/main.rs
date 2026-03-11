@@ -7,10 +7,11 @@ pub enum MenuId {
     ScanQrCode = 1002,
     ImportNodeFile = 1003,
     New = 1004,
-    Run = 1005,
-    Stop = 1006,
-    Open = 1007,
-    Quit = 1008,
+    OverTls = 1005,
+    Tun2proxy = 1006,
+    HttpProxy = 1007,
+    Open = 1008,
+    Quit = 1009,
     ViewDetails = 3001,
     ExportNode = 3002,
     ShowQrCode = 3003,
@@ -35,8 +36,9 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::ScanQrCode as i32 => Ok(MenuId::ScanQrCode),
             x if x == MenuId::ImportNodeFile as i32 => Ok(MenuId::ImportNodeFile),
             x if x == MenuId::New as i32 => Ok(MenuId::New),
-            x if x == MenuId::Run as i32 => Ok(MenuId::Run),
-            x if x == MenuId::Stop as i32 => Ok(MenuId::Stop),
+            x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
+            x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
+            x if x == MenuId::HttpProxy as i32 => Ok(MenuId::HttpProxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
             x if x == MenuId::Quit as i32 => Ok(MenuId::Quit),
             x if x == MenuId::ViewDetails as i32 => Ok(MenuId::ViewDetails),
@@ -72,9 +74,9 @@ use std::{cell::RefCell, rc::Rc, sync::Arc, sync::Mutex};
 use wxdragon::prelude::*;
 
 // Toolbar tool IDs (distinct from menu IDs)
-const ID_TOOL_OVERTLS: Id = ID_HIGHEST + 101;
-const ID_TOOL_TUN2PROXY: Id = ID_HIGHEST + 102;
-const ID_TOOL_HTTPPROXY: Id = ID_HIGHEST + 103;
+const ID_TOOL_OVERTLS: Id = MenuId::OverTls as Id; // can reuse menu ID since it's the same action
+const ID_TOOL_TUN2PROXY: Id = MenuId::Tun2proxy as Id; // can reuse menu ID since it's the same action
+const ID_TOOL_HTTPPROXY: Id = MenuId::HttpProxy as Id; // can reuse menu ID since it's the same action
 const ID_TOOL_SETTINGS: Id = MenuId::Settings as Id; // simple button to open settings
 
 fn main() -> std::io::Result<()> {
@@ -286,8 +288,9 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
-            .append_item(MenuId::Run.into(), "Run\tF5", "Run node")
-            .append_item(MenuId::Stop.into(), "Stop\tShift+F5", "Stop node")
+            .append_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
+            .append_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
+            .append_item(MenuId::HttpProxy.into(), "HttpProxy\tCtrl+F5", "HttpProxy service")
             .append_separator()
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
             .build();
@@ -334,7 +337,7 @@ fn main() -> std::io::Result<()> {
                     MenuId::ShowQrCode,
                     MenuId::Delete,
                     MenuId::Copy,
-                    MenuId::Run,
+                    MenuId::OverTls,
                 ];
                 for id in gated {
                     // Enable only if there is a pending selection
@@ -412,6 +415,8 @@ fn main() -> std::io::Result<()> {
         let model_for_destroy = model.clone();
         let cfg_for_destroy = cfg_clone.clone();
         frame.on_destroy(move |_data| {
+            menu_actions::stop_all_services().ok(); // best effort to stop any running services before exit
+
             // Persist current servers from the model back to settings
             if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
                 list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
