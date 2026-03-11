@@ -288,9 +288,9 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
-            .append_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
-            .append_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
-            .append_item(MenuId::HttpProxy.into(), "HttpProxy\tCtrl+F5", "HttpProxy service")
+            .append_check_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
+            .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
+            .append_check_item(MenuId::HttpProxy.into(), "HttpProxy\tCtrl+F5", "HttpProxy service")
             .append_separator()
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
             .build();
@@ -319,6 +319,11 @@ fn main() -> std::io::Result<()> {
             .build();
         frame.set_menu_bar(menubar);
 
+        // ensure the menu items have the correct checked state at startup as well
+        if let Some(mbar) = frame.get_menu_bar() {
+            sync_menu(&mbar);
+        }
+
         // Dynamically enable/disable Node menu items when the menu bar opens
         // Disable actions that require a selection if none is present
         let frame_for_menu_open = frame;
@@ -337,12 +342,14 @@ fn main() -> std::io::Result<()> {
                     MenuId::ShowQrCode,
                     MenuId::Delete,
                     MenuId::Copy,
-                    MenuId::OverTls,
                 ];
                 for id in gated {
                     // Enable only if there is a pending selection
                     let _ = mbar.enable_item(id.into(), has_sel);
                 }
+
+                // also update the checked state of our three toggle actions
+                sync_menu(&mbar);
             }
         });
 
@@ -382,6 +389,10 @@ fn main() -> std::io::Result<()> {
             // each time we're about to handle something, refresh toolbar state
             if let Some(tb) = &toolbar_opt {
                 sync_toolbar(tb);
+            }
+            // and keep the menubar entries checked appropriately as well
+            if let Some(mbar) = frame.get_menu_bar() {
+                sync_menu(&mbar);
             }
         });
 
@@ -526,4 +537,16 @@ fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     let http = menu_actions::is_http_proxy_running();
     tb.toggle_tool(ID_TOOL_HTTPPROXY, http);
     tb.set_tool_short_help(ID_TOOL_HTTPPROXY, if http { "Stop HTTP Proxy" } else { "Start HTTP Proxy" });
+}
+
+// helper to update the checked state of the same three actions on the main menu
+fn sync_menu(mb: &wxdragon::menus::MenuBar) {
+    if !run_as::is_elevated() {
+        // If not elevated, ensure the Tun2Proxy menu item is disabled
+        mb.enable_item(MenuId::Tun2proxy.into(), false);
+    }
+
+    mb.check_item(MenuId::OverTls.into(), menu_actions::is_overtls_running());
+    mb.check_item(MenuId::Tun2proxy.into(), menu_actions::is_tun2proxy_running());
+    mb.check_item(MenuId::HttpProxy.into(), menu_actions::is_http_proxy_running());
 }
