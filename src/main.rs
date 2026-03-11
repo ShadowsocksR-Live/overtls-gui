@@ -359,10 +359,10 @@ fn main() -> std::io::Result<()> {
             let id = event.get_id();
             // special handling for the three toggle tools
             if id == ID_TOOL_OVERTLS {
-                if menu_actions::is_overtls_running() {
-                    let _ = menu_actions::stop_overtls_only();
+                if core::is_overtls_running() {
+                    let _ = core::stop_overtls_only();
                 } else {
-                    menu_actions::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
+                    core::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
                 }
             } else if id == ID_TOOL_TUN2PROXY {
                 if !run_as::is_elevated() {
@@ -371,16 +371,16 @@ fn main() -> std::io::Result<()> {
                         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
                         .build()
                         .show_modal();
-                } else if menu_actions::is_tun2proxy_running() {
-                    let _ = menu_actions::stop_tun2proxy_only();
+                } else if core::is_tun2proxy_running() {
+                    let _ = core::stop_tun2proxy_only();
                 } else {
-                    menu_actions::start_tun2proxy_only(&frame, &cfg_for_menu);
+                    core::start_tun2proxy_only(&frame, &cfg_for_menu);
                 }
             } else if id == ID_TOOL_HTTPPROXY {
-                if menu_actions::is_http_proxy_running() {
-                    let _ = menu_actions::stop_http_proxy_only();
+                if core::is_http_proxy_running() {
+                    let _ = core::stop_http_proxy_only();
                 } else {
-                    menu_actions::start_http_proxy_only(&frame, &cfg_for_menu);
+                    core::start_http_proxy_only(&frame, &cfg_for_menu);
                 }
             } else {
                 menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
@@ -426,7 +426,7 @@ fn main() -> std::io::Result<()> {
         let model_for_destroy = model.clone();
         let cfg_for_destroy = cfg_clone.clone();
         frame.on_destroy(move |_data| {
-            menu_actions::stop_all_services().ok(); // best effort to stop any running services before exit
+            core::stop_all_services().ok(); // best effort to stop any running services before exit
 
             // Persist current servers from the model back to settings
             if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
@@ -526,15 +526,15 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 
 // helper to update all three toggle buttons according to actual running state
 fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
-    let running = menu_actions::is_overtls_running();
+    let running = core::is_overtls_running();
     tb.toggle_tool(ID_TOOL_OVERTLS, running);
     tb.set_tool_short_help(ID_TOOL_OVERTLS, if running { "Stop OverTLS" } else { "Start OverTLS (SOCKS5)" });
 
-    let t2p = menu_actions::is_tun2proxy_running();
+    let t2p = core::is_tun2proxy_running();
     tb.toggle_tool(ID_TOOL_TUN2PROXY, t2p);
     tb.set_tool_short_help(ID_TOOL_TUN2PROXY, if t2p { "Stop Tun2Proxy" } else { "Start Tun2Proxy" });
 
-    let http = menu_actions::is_http_proxy_running();
+    let http = core::is_http_proxy_running();
     tb.toggle_tool(ID_TOOL_HTTPPROXY, http);
     tb.set_tool_short_help(ID_TOOL_HTTPPROXY, if http { "Stop HTTP Proxy" } else { "Start HTTP Proxy" });
 }
@@ -546,7 +546,7 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar) {
         mb.enable_item(MenuId::Tun2proxy.into(), false);
     }
 
-    mb.check_item(MenuId::OverTls.into(), menu_actions::is_overtls_running());
-    mb.check_item(MenuId::Tun2proxy.into(), menu_actions::is_tun2proxy_running());
-    mb.check_item(MenuId::HttpProxy.into(), menu_actions::is_http_proxy_running());
+    mb.check_item(MenuId::OverTls.into(), core::is_overtls_running());
+    mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
+    mb.check_item(MenuId::HttpProxy.into(), core::is_http_proxy_running());
 }

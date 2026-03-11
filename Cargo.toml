@@ -13,8 +13,8 @@ category = "Utility"
 short_description = "A overtls-gui application for wxDragon"
 long_description = """
 A overtls-gui application for wxDragon that showcases the capabilities of the wxDragon framework.
-It allows users to view images in various formats, demonstrating the integration of the wxDragon framework with
-the Rust programming language.
+It allows users to view images in various formats, demonstrating the integration of the wxDragon
+framework with the Rust programming language.
 """
 
 [dependencies]
@@ -22,7 +22,7 @@ bitflags = "2.11.0"
 chrono = "0.4.44"
 dirs = "6.0.0"
 env_logger = "0.11.9"
-image = { version = "0.25.9", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.29"
 overtls = { version = "0.3.7" }
 qrcode = "0.14.1"
