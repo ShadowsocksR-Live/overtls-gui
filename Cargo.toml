@@ -1,6 +1,6 @@
 [package]
 name = "overtls-gui"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [package.metadata.bundle]
@@ -9,12 +9,14 @@ edition = "2024"
 name = "overtls-gui"
 identifier = "com.github.ssrlive.overtls-gui"
 icon = ["assets/main.png"]
+resources = ["assets"]
 category = "Utility"
-short_description = "A overtls-gui application for wxDragon"
+short_description = "A GUI wrapper for overtls proxy suits powered by wxDragon"
 long_description = """
-A overtls-gui application for wxDragon that showcases the capabilities of the wxDragon framework.
-It allows users to view images in various formats, demonstrating the integration of the wxDragon
-framework with the Rust programming language.
+A GUI wrapper for overtls proxy suits powered by wxDragon. It provides a user-friendly interface
+to manage and configure your overtls proxy settings, making it easier to use and customize your
+proxy experience. With features like QR code generation, screen capture, and integration with
+various libraries, overtls-gui aims to enhance your proxy management workflow.
 """
 
 [dependencies]
