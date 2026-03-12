@@ -67,6 +67,9 @@ mod settings_dlg;
 mod show_qrcode_dlg;
 mod util;
 
+// single-instance helper logic extracted to its own module
+mod single_instance;
+
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
 use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
@@ -90,6 +93,13 @@ fn main() -> std::io::Result<()> {
         std::process::exit(status.code().unwrap_or_default());
     }
 
+    // --- single-instance detection / activation -----------------------------
+    let Ok(activation_listener) = crate::single_instance::acquire() else {
+        // an Err return signals that another instance was present and already
+        // notified; just exit quietly.
+        return Ok(());
+    };
+
     let logging_settings = cfg.lock().unwrap().logging.clone().unwrap_or_default();
     let (tx, logging_rx) = std::sync::mpsc::channel();
     if let Err(e) = log::set_boxed_logger(Box::new(logging_settings.create_logger(tx))) {
@@ -107,6 +117,13 @@ fn main() -> std::io::Result<()> {
     });
 
     let cfg_clone = cfg.clone();
+
+    // holder for the activation timer.  storing it in an `Arc` outside the
+    // closure ensures the timer lives for the lifetime of the application
+    // without needing to `mem::forget` it.
+    let timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+    let timer_holder_clone = timer_holder.clone();
+
     let _ = wxdragon::main(move |_| {
         // Build model once from settings.servers
         let mut nodes = cfg_clone.lock().unwrap().servers.clone();
@@ -147,6 +164,28 @@ fn main() -> std::io::Result<()> {
             .with_position(win_cfg.get_point())
             .with_size(win_cfg.get_size())
             .build();
+
+        // if we bound the activation port successfully earlier, start a
+        // background thread to accept connections and send a simple signal over
+        // a channel. the UI thread will poll the receiver via a wx timer and
+        // perform the actual raise operation, which avoids moving the `Frame`
+        // across thread boundaries.
+        if let Some(listener) = activation_listener {
+            // spawn helper returns receiver we can poll
+            let act_rx = crate::single_instance::spawn_activation_listener(listener);
+
+            // timer on the UI thread polls the receiver and raises the window
+            let timer = Timer::new(&frame);
+            timer.on_tick(move |_evt| {
+                if act_rx.try_recv().is_ok() {
+                    force_restore_main_window(&frame);
+                }
+            });
+            // choose a small interval so activation is responsive but not busy
+            timer.start(150, false);
+            // save timer in outer Rc so it stays alive
+            *timer_holder_clone.borrow_mut() = Some(timer);
+        }
 
         let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((48, 48))).unwrap();
         frame.set_icon(&icon_bitmap);
@@ -249,9 +288,7 @@ fn main() -> std::io::Result<()> {
             match menu_id {
                 x if x == MenuId::Open as i32 => {
                     log::info!("📂 Open Application clicked!");
-                    frame_taskbar.show(true);
-                    frame_taskbar.iconize(false);
-                    frame_taskbar.raise();
+                    force_restore_main_window(&frame_taskbar);
                 }
                 x if x == MenuId::Settings as i32 => {
                     log::info!("⚙️ Settings clicked!");
@@ -549,4 +586,10 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar) {
     mb.check_item(MenuId::OverTls.into(), core::is_overtls_running());
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
     mb.check_item(MenuId::HttpProxy.into(), core::is_http_proxy_running());
+}
+
+fn force_restore_main_window(frame: &Frame) {
+    frame.show(true);
+    frame.iconize(false);
+    frame.raise();
 }
