@@ -111,7 +111,10 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
         selection_ctx::set_pending_details(weak_opt);
     });
 
-    enable_dataview_dnd(&dataview, model);
+    // DataViewCtrl uses an internal child window for the actual list contents.
+    // On some platforms (macOS/GTK) the outer control itself may not receive drop events,
+    // so attach the drop target to the parent panel instead.
+    enable_widget_dnd(&panel, model);
 
     // Layout
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -121,10 +124,10 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
     panel
 }
 
-// Enable file drag-and-drop on the DataViewCtrl itself.
-fn enable_dataview_dnd(dataview: &DataViewCtrl, model: &CustomDataViewTreeModel) {
+// Enable file drag-and-drop on the DataViewCtrl (via the parent panel).
+fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeModel) {
     let model_for_dnd = model.clone();
-    FileDropTarget::builder(dataview)
+    FileDropTarget::builder(drop_target)
         .with_on_enter(|_x, _y, _def_result| {
             log::info!("DataView DnD: OnEnter at ({_x}, {_y})");
             DragResult::Copy
