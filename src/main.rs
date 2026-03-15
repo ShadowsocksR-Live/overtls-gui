@@ -308,6 +308,12 @@ fn main() -> std::io::Result<()> {
             }
         });
 
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        taskbar.on_left_down(move |_event| {
+            log::info!("Taskbar icon clicked, restoring main window.");
+            force_restore_main_window(&frame_taskbar);
+        });
+
         let success = taskbar.set_icon(&icon_bitmap, "OverTLS server node manager");
 
         if success && taskbar.is_icon_installed() {
