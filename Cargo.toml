@@ -39,7 +39,7 @@ socks-hub = "0.2.3"
 strum = { version = "0.28.0", features = ["derive"] }
 tokio = { version = "1.50.0", features = ["full"] }
 tun2proxy = { version = "0.7.19", default-features = false }
-wxdragon = { version = "0.9.13", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "0392b77" }
+wxdragon = { version = "0.9.14", default-features = false }
 
 [build-dependencies]
 embed-manifest = "1.5.0"
