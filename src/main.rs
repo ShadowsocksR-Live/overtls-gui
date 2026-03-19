@@ -178,7 +178,7 @@ fn main() -> std::io::Result<()> {
             let timer = Timer::new(&frame);
             timer.on_tick(move |_evt| {
                 if act_rx.try_recv().is_ok() {
-                    force_restore_main_window(&frame);
+                    restore_main_window(&frame);
                 }
             });
             // choose a small interval so activation is responsive but not busy
@@ -288,7 +288,7 @@ fn main() -> std::io::Result<()> {
             match menu_id {
                 x if x == MenuId::Open as i32 => {
                     log::info!("📂 Open Application clicked!");
-                    force_restore_main_window(&frame_taskbar);
+                    restore_main_window(&frame_taskbar);
                 }
                 x if x == MenuId::Settings as i32 => {
                     log::info!("⚙️ Settings clicked!");
@@ -310,8 +310,8 @@ fn main() -> std::io::Result<()> {
 
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         taskbar.on_left_down(move |_event| {
-            log::info!("Taskbar icon clicked, restoring main window.");
-            force_restore_main_window(&frame_taskbar);
+            log::info!("Taskbar icon clicked, toggling main window visibility.");
+            toggle_main_window_from_tray(&frame_taskbar);
         });
 
         let success = taskbar.set_icon(&icon_bitmap, "OverTLS server node manager");
@@ -594,8 +594,18 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar) {
     mb.check_item(MenuId::HttpProxy.into(), core::is_http_proxy_running());
 }
 
-fn force_restore_main_window(frame: &Frame) {
+fn restore_main_window(frame: &Frame) {
     frame.show(true);
     frame.iconize(false);
     frame.raise();
+    frame.set_focus();
+}
+
+#[allow(dead_code)]
+fn toggle_main_window_from_tray(frame: &Frame) {
+    if frame.is_shown() && !frame.is_iconized() {
+        frame.show(false);
+    } else {
+        restore_main_window(frame);
+    }
 }
