@@ -461,7 +461,7 @@ fn main() -> std::io::Result<()> {
                     // we veto the close and hide the window instead
                     log::debug!("Close event vetoed, hiding window instead of closing.");
                     event.veto();
-                    frame.show(false);
+                    do_hide_frame(&frame);
                 }
             }
         });
@@ -604,8 +604,18 @@ fn restore_main_window(frame: &Frame) {
 #[allow(dead_code)]
 fn toggle_main_window_from_tray(frame: &Frame) {
     if frame.is_shown() && !frame.is_iconized() {
-        frame.show(false);
+        do_hide_frame(frame);
     } else {
         restore_main_window(frame);
+    }
+}
+
+fn do_hide_frame(frame: &Frame) {
+    if (run_as::is_elevated() && cfg!(target_os = "linux")) || cfg!(target_os = "macos") {
+        // On Linux and macOS, hiding the window while elevated can cause issues with focus and taskbar icon visibility.
+        // Instead of hiding, we minimize the window to keep it accessible.
+        frame.iconize(true);
+    } else {
+        frame.show(false);
     }
 }
