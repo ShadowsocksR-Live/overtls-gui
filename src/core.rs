@@ -32,8 +32,9 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: O
         // does not go through the tunnel
         result.bypass(remote_server_ip.ip().into());
 
+        let client_host = normalize_connect_host(&client.listen_host);
         // convert host:port into a network SocketAddr using string parsing
-        let listen_addr: std::net::SocketAddr = format!("{}:{}", client.listen_host, client.listen_port).parse().ok()?;
+        let listen_addr: std::net::SocketAddr = format!("{}:{}", client_host, client.listen_port).parse().ok()?;
 
         let mut proxy = tun2proxy::ArgProxy {
             proxy_type: tun2proxy::ProxyType::Socks5,
@@ -56,6 +57,13 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: O
     }
 
     Some(result)
+}
+
+fn normalize_connect_host(host: &str) -> &str {
+    match host {
+        "0.0.0.0" | "::" | "[::]" => "127.0.0.1",
+        _ => host,
+    }
 }
 
 type CancelTokenPtr = Arc<Mutex<Option<overtls::CancellationToken>>>;
@@ -262,12 +270,13 @@ pub fn start_http_proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     let remote = if let Some(overtls_cfg) = get_running_overtls_node()
         && let Some(client) = overtls_cfg.client.as_ref()
     {
-        format!("socks5://{}:{}", client.listen_host, client.listen_port)
+        let host = normalize_connect_host(&client.listen_host);
+        format!("socks5://{}:{}", host, client.listen_port)
     } else {
         format!("socks5://{}", http.s5_server_address_port)
     };
 
-    let hub_cfg = socks_hub::Config::new(&listen, &remote);
+    let hub_cfg = socks_hub_core::Config::new(&listen, &remote);
 
     let token = overtls::CancellationToken::new();
     *HTTPPROXY_TOKEN.lock().unwrap() = Some(token.clone());
@@ -285,7 +294,7 @@ pub fn start_http_proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         let res = match rt {
             Ok(rt) => rt.block_on(async move {
                 log::debug!("Starting http proxy (socks-hub)...");
-                socks_hub::main_entry(&hub_cfg, token.clone(), Some(log_listen))
+                socks_hub_core::main_entry(&hub_cfg, token.clone(), Some(log_listen))
                     .await
                     .map_err(std::io::Error::other)
             }),

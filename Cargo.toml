@@ -1,6 +1,6 @@
 [package]
 name = "overtls-gui"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["@ssrlive"]
 description = "A GUI wrapper for overtls proxy suits powered by wxDragon"
@@ -22,25 +22,25 @@ various libraries, overtls-gui aims to enhance your proxy management workflow.
 """
 
 [dependencies]
-bitflags = "2.11.0"
+bitflags = "2.11.1"
 chrono = "0.4.44"
 dirs = "6.0.0"
-env_logger = "0.11.9"
+env_logger = "0.11.10"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.29"
-overtls = { version = "0.3.7" }
+overtls = { version = "0.3.9" }
 qrcode = "0.14.1"
 rqrr = "0.10.1"
 run-as = { version = "1.2.5", default-features = false }
 screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-socks-hub = "0.2.3"
+socks-hub = "0.2.4"
 strum = { version = "0.28.0", features = ["derive"] }
-tokio = { version = "1.50.0", features = ["full"] }
-tun2proxy = { version = "0.7.19", default-features = false }
-wxdragon = { version = "0.9.14", default-features = false }
+tokio = { version = "1.52.3", features = ["full"] }
+tun2proxy = { version = "0.7.21", default-features = false }
+wxdragon = { version = "0.9.15", default-features = false }
 
 [build-dependencies]
 embed-manifest = "1.5.0"
-embed-resource = "3.0.6"
+embed-resource = "3.0.9"
