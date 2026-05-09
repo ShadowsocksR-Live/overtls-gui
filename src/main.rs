@@ -611,8 +611,8 @@ fn toggle_main_window_from_tray(frame: &Frame) {
 }
 
 fn do_hide_frame(frame: &Frame) {
-    if (run_as::is_elevated() && cfg!(target_os = "linux")) || cfg!(target_os = "macos") {
-        // On Linux and macOS, hiding the window while elevated can cause issues with focus and taskbar icon visibility.
+    if (run_as::is_elevated() && (cfg!(target_os = "linux") || cfg!(target_os = "windows"))) || cfg!(target_os = "macos") {
+        // Hiding the window while elevated can cause issues with focus and taskbar icon visibility.
         // Instead of hiding, we minimize the window to keep it accessible.
         frame.iconize(true);
     } else {
