@@ -9,7 +9,6 @@ pub enum MenuId {
     New = 1004,
     OverTls = 1005,
     Tun2proxy = 1006,
-    HttpProxy = 1007,
     Open = 1008,
     Quit = 1009,
     ViewDetails = 3001,
@@ -38,7 +37,6 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::New as i32 => Ok(MenuId::New),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
-            x if x == MenuId::HttpProxy as i32 => Ok(MenuId::HttpProxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
             x if x == MenuId::Quit as i32 => Ok(MenuId::Quit),
             x if x == MenuId::ViewDetails as i32 => Ok(MenuId::ViewDetails),
@@ -79,7 +77,6 @@ use wxdragon::prelude::*;
 // Toolbar tool IDs (distinct from menu IDs)
 const ID_TOOL_OVERTLS: Id = MenuId::OverTls as Id; // can reuse menu ID since it's the same action
 const ID_TOOL_TUN2PROXY: Id = MenuId::Tun2proxy as Id; // can reuse menu ID since it's the same action
-const ID_TOOL_HTTPPROXY: Id = MenuId::HttpProxy as Id; // can reuse menu ID since it's the same action
 const ID_TOOL_SETTINGS: Id = MenuId::Settings as Id; // simple button to open settings
 
 fn main() -> std::io::Result<()> {
@@ -223,17 +220,6 @@ fn main() -> std::io::Result<()> {
                 toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
             }
 
-            // HTTP Proxy tool (toggle)
-            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileSave, ArtClient::Toolbar, None) {
-                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
-                    toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
-                }
-            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileSave, ArtClient::Toolbar, None) {
-                toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &icon, "Start HTTP Proxy");
-            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_check_tool(ID_TOOL_HTTPPROXY, "HTTP Proxy", &bmp, "Start HTTP Proxy");
-            }
-
             toolbar.realize();
             // if the process is not elevated, tun2proxy cannot run; disable the tool
             if !run_as::is_elevated() {
@@ -308,7 +294,6 @@ fn main() -> std::io::Result<()> {
             .append_separator()
             .append_check_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
             .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
-            .append_check_item(MenuId::HttpProxy.into(), "HttpProxy\tCtrl+F5", "HttpProxy service")
             .append_separator()
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
             .build();
@@ -393,12 +378,6 @@ fn main() -> std::io::Result<()> {
                     let _ = core::stop_tun2proxy_only();
                 } else {
                     core::start_tun2proxy_only(&frame, &cfg_for_menu);
-                }
-            } else if id == ID_TOOL_HTTPPROXY {
-                if core::is_http_proxy_running() {
-                    let _ = core::stop_http_proxy_only();
-                } else {
-                    core::start_http_proxy_only(&frame, &cfg_for_menu);
                 }
             } else {
                 menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
@@ -551,10 +530,6 @@ fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     let t2p = core::is_tun2proxy_running();
     tb.toggle_tool(ID_TOOL_TUN2PROXY, t2p);
     tb.set_tool_short_help(ID_TOOL_TUN2PROXY, if t2p { "Stop Tun2Proxy" } else { "Start Tun2Proxy" });
-
-    let http = core::is_http_proxy_running();
-    tb.toggle_tool(ID_TOOL_HTTPPROXY, http);
-    tb.set_tool_short_help(ID_TOOL_HTTPPROXY, if http { "Stop HTTP Proxy" } else { "Start HTTP Proxy" });
 }
 
 // helper to update the checked state of the same three actions on the main menu
@@ -566,7 +541,6 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar) {
 
     mb.check_item(MenuId::OverTls.into(), core::is_overtls_running());
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
-    mb.check_item(MenuId::HttpProxy.into(), core::is_http_proxy_running());
 }
 
 fn restore_main_window(frame: &Frame) {

@@ -247,10 +247,6 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             log::info!("Menu/Toolbar: Tun2proxy clicked!");
         }
 
-        MenuId::HttpProxy => {
-            log::info!("Menu/Toolbar: HttpProxy clicked!");
-        }
-
         _ => {
             log::warn!("Unhandled Menu ID: {menu_id:?}");
         }

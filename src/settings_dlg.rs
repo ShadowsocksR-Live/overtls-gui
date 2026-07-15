@@ -1,6 +1,5 @@
 use crate::settings::{
-    Config, HttpProxySettings, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, center_rect, create_bitmap_from_memory,
-    save_settings,
+    Config, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, center_rect, create_bitmap_from_memory, save_settings,
 };
 use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
@@ -31,7 +30,6 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     let (common_panel, common_read) = create_common_tab(&notebook, cfg);
     let (overtls_panel, overtls_read) = create_overtls_tab(&notebook, cfg);
     let (tun2proxy_panel, tun2proxy_read) = create_tun2proxy_tab(&notebook, &tun2proxy_settings);
-    let (httpproxy_panel, httpproxy_read) = create_httpproxy_tab(&notebook, cfg);
     let (logging_panel, logging_read) = create_logging_tab(&notebook, cfg);
 
     let image_list = ImageList::new(16, 16, true, 4);
@@ -50,8 +48,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     notebook.add_page(&common_panel, "Common", true, Some(0));
     notebook.add_page(&overtls_panel, "OverTLS", false, Some(1));
     notebook.add_page(&tun2proxy_panel, "Tun2proxy", false, Some(1));
-    notebook.add_page(&httpproxy_panel, "HttpProxy", false, Some(2));
-    notebook.add_page(&logging_panel, "Logging", false, Some(3));
+    notebook.add_page(&logging_panel, "Logging", false, Some(2));
 
     // OK & Cancel buttons
     let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
@@ -95,10 +92,6 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         // Tun2proxy
         let new_tun2proxy: tun2proxy::Args = tun2proxy_read();
         cfg_lock.tun2proxy = Some(new_tun2proxy);
-
-        // HttpProxy
-        let new_http: HttpProxySettings = httpproxy_read();
-        cfg_lock.http_proxy = Some(new_http);
 
         // Logging (also mark if changed)
         let prev_logging = cfg_lock.logging.clone().unwrap_or_default();
@@ -445,101 +438,6 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
                 bypass: bypass_vec,
                 ..Default::default()
             }
-        }
-    };
-
-    (panel, reader)
-}
-
-fn create_httpproxy_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> HttpProxySettings + 'static) {
-    let http_proxy_settings = cfg.lock().unwrap().http_proxy.clone().unwrap_or_default();
-
-    let panel = Panel::builder(parent).build();
-
-    let label_size = Size::new(170, -1);
-
-    // Source Type (dropdown)
-    let source_type_label = StaticText::builder(&panel)
-        .with_label("Source Type:")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let source_type_choices = vec!["http", "socks5"].into_iter().map(String::from).collect::<Vec<String>>();
-    let source_type_choice = Choice::builder(&panel)
-        .with_choices(source_type_choices)
-        .with_selection(Some(0))
-        .with_size(Size::new(120, -1))
-        .build();
-    source_type_choice.enable(false);
-
-    // Listen Addr
-    let listen_addr_label = StaticText::builder(&panel)
-        .with_label("Listen Addr:")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let listen_addr_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
-    listen_addr_input.set_value(&http_proxy_settings.listen_address_port);
-
-    // Server Addr
-    let server_addr_label = StaticText::builder(&panel)
-        .with_label("SOCKS5 Server Addr:")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let server_addr_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
-    server_addr_input.set_value(&http_proxy_settings.s5_server_address_port);
-
-    // Username
-    let username_label = StaticText::builder(&panel)
-        .with_label("Username:")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let username_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
-    username_input.set_value(&http_proxy_settings.username.unwrap_or_default());
-
-    // Password
-    let password_label = StaticText::builder(&panel)
-        .with_label("Password:")
-        .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
-        .build();
-    let password_input = TextCtrl::builder(&panel)
-        .with_size(Size::new(200, -1))
-        .with_style(TextCtrlStyle::Password)
-        .build();
-    password_input.set_value(&http_proxy_settings.password.unwrap_or_default());
-
-    let grid = FlexGridSizer::builder(6, 2).with_vgap(10).with_hgap(16).build();
-    grid.add(&source_type_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&source_type_choice, 0, SizerFlag::Expand, 0);
-    grid.add(&listen_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&listen_addr_input, 0, SizerFlag::Expand, 0);
-    grid.add(&server_addr_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&server_addr_input, 0, SizerFlag::Expand, 0);
-    grid.add(&username_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&username_input, 0, SizerFlag::Expand, 0);
-    grid.add(&password_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
-    grid.add(&password_input, 0, SizerFlag::Expand, 0);
-
-    let sizer = BoxSizer::builder(Orientation::Vertical).build();
-    sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
-    panel.set_sizer(sizer, true);
-
-    // Reader closure for HttpProxySettings
-    let reader = {
-        move || HttpProxySettings {
-            listen_address_port: listen_addr_input.get_value(),
-            s5_server_address_port: server_addr_input.get_value(),
-            username: {
-                let val = username_input.get_value();
-                if val.is_empty() { None } else { Some(val) }
-            },
-            password: {
-                let val = password_input.get_value();
-                if val.is_empty() { None } else { Some(val) }
-            },
         }
     };
 

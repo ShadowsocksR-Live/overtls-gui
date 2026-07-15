@@ -25,9 +25,6 @@ pub struct Config {
     pub tun2proxy: Option<tun2proxy::Args>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub http_proxy: Option<HttpProxySettings>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logging: Option<LoggingSettings>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,7 +48,6 @@ impl Config {
                 run_as_admin: None,
                 over_tls: None,
                 tun2proxy: None,
-                http_proxy: None,
                 logging: None,
             });
 
@@ -137,27 +133,6 @@ impl Default for OverTlsSettings {
             listen_password: None,
             pool_max_size: 200,
             cache_dns: false,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct HttpProxySettings {
-    pub listen_address_port: String,
-    pub s5_server_address_port: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub password: Option<String>,
-}
-
-impl Default for HttpProxySettings {
-    fn default() -> Self {
-        Self {
-            listen_address_port: "127.0.0.1:8080".into(),
-            s5_server_address_port: "127.0.0.1:1080".into(),
-            username: None,
-            password: None,
         }
     }
 }
