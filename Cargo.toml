@@ -1,6 +1,6 @@
 [package]
 name = "overtls-gui"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["@ssrlive"]
 description = "A GUI wrapper for overtls proxy suits powered by wxDragon"
@@ -42,5 +42,6 @@ uuid = { version = "1.23.5", features = ["v4"] }
 wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163" }
 
 [build-dependencies]
+chrono = "0.4.45"
 embed-manifest = "1.5.0"
 embed-resource = "3.0.11"
