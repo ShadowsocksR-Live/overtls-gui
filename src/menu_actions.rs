@@ -311,19 +311,22 @@ fn server_node_from_image(dyn_img: &image::DynamicImage) -> std::io::Result<Serv
 
 fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
     use std::io::{Error, ErrorKind::InvalidData};
-    let img = img.to_luma8();
-    // Prepare for detection
-    let mut img = rqrr::PreparedImage::prepare(img);
-    // Search for grids, without decoding
-    let grids = img.detect_grids();
-    // Decode the grid
-    let (meta, content) = grids
-        .first()
-        .ok_or_else(|| Error::new(InvalidData, "Failed to get QR code grid"))?
-        .decode()
+
+    let mut hints = rxing::DecodeHints {
+        TryHarder: Some(true),
+        ..Default::default()
+    };
+
+    let results = rxing::helpers::detect_multiple_in_image_with_hints(img.clone(), &mut hints)
         .map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
-    log::trace!("QR code meta: {:?}", meta);
-    Ok(content)
+
+    if results.is_empty() {
+        return Err(Error::new(InvalidData, "No QR code found"));
+    }
+
+    let text = results[0].getText();
+    log::trace!("rxing decoded QR code: {}", text);
+    Ok(text.to_string())
 }
 
 pub fn screenshot_qr_import() -> std::io::Result<ServerNode> {

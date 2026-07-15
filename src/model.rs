@@ -66,7 +66,12 @@ fn get_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
                 overtls::TunnelPath::Single(s) => s.clone(),
                 overtls::TunnelPath::Multiple(v) => v.first().cloned().unwrap_or_default(),
             }),
-            NodeFields::ClientID => Variant::from_string(node.client.as_ref().and_then(|c| c.client_id.clone()).unwrap_or_default()),
+            NodeFields::ClientID => Variant::from_string(
+                node.client
+                    .as_ref()
+                    .and_then(|c| c.client_id.map(|id| id.to_string()))
+                    .unwrap_or_default(),
+            ),
             NodeFields::ServerHost => Variant::from_string(node.client.as_ref().map(|c| c.server_host.clone()).unwrap_or_default()),
             // DataViewTextRenderer expects a string; display port as string
             NodeFields::ServerPort => Variant::from_string(node.client.as_ref().map(|c| c.server_port.to_string()).unwrap_or_default()),
@@ -132,7 +137,7 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         NodeFields::ClientID => {
             if let Some(s) = var.get_string() {
                 if let Some(c) = node.client.as_mut() {
-                    c.client_id = if s.trim().is_empty() { None } else { Some(s) };
+                    c.client_id = s.trim().parse::<uuid::Uuid>().ok();
                 }
                 true
             } else {
@@ -232,10 +237,8 @@ fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, c
         NodeFields::ClientID => a
             .client
             .as_ref()
-            .and_then(|c| c.client_id.as_deref())
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&b.client.as_ref().and_then(|c| c.client_id.as_deref()).unwrap_or("").to_lowercase()),
+            .and_then(|c| c.client_id.as_ref())
+            .cmp(&b.client.as_ref().and_then(|c| c.client_id.as_ref())),
         NodeFields::ServerHost => a
             .client
             .as_ref()

@@ -31,7 +31,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
 
     let left_width = 140;
     let right_width = w - left_width - 10;
-    let panel = Panel::builder(&dialog).build();
+    let panel: Panel = Panel::builder(&dialog).build();
     let label_size = Size::new(left_width, -1);
     let input_size = Size::new(right_width, -1);
 
@@ -61,7 +61,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         .with_label("Client ID")
         .with_size(label_size)
         .build();
-    let client_id_input = TextCtrl::builder(&panel).with_size(input_size).build();
+    let client_id_input: TextCtrl = TextCtrl::builder(&panel).with_size(input_size).build();
 
     let server_host_label = StaticText::builder(&panel)
         .with_style(StaticTextStyle::AlignRight)
@@ -160,7 +160,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         // Client fields (if present)
         if let Some(c) = node.client.as_ref() {
             disable_tls_checkbox.set_value(c.disable_tls.unwrap_or(false));
-            client_id_input.set_value(c.client_id.as_deref().unwrap_or(""));
+            client_id_input.set_value(c.client_id.map(|s| s.to_string()).unwrap_or_default().as_str());
             server_host_input.set_value(&c.server_host);
             server_port_input.set_value(c.server_port as i32);
             server_domain_input.set_value(c.server_domain.as_deref().unwrap_or(""));
@@ -193,8 +193,7 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         let disable_tls = if disable_tls_checkbox.get_value() { Some(true) } else { None };
         let client_id = {
             let s = client_id_input.get_value();
-            let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
+            uuid::Uuid::parse_str(s.trim()).ok()
         };
         let server_host = server_host_input.get_value();
         let server_port = {

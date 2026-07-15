@@ -23,7 +23,7 @@ pub fn show_about_dialog(parent: &dyn WxWidget) {
 
     // right: text vertical sizer
     let right_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    let info = format!("{APP_TITLE}\n\nAn OverTLS server node GUI manager.\n\nCopyright © 2025 ssrlive.\nAll rights reserved.");
+    let info = format!("{APP_TITLE}\n\nAn OverTLS server node GUI manager.\n\nCopyright © 2025 - 2026 ssrlive.\nAll rights reserved.");
     let text = StaticText::builder(&dlg).with_label(&info).build();
     right_sizer.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 20);
     let ok_btn = Button::builder(&dlg).with_id(ID_CANCEL).with_label("OK").build();

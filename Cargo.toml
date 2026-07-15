@@ -22,25 +22,26 @@ various libraries, overtls-gui aims to enhance your proxy management workflow.
 """
 
 [dependencies]
-bitflags = "2.11.1"
-chrono = "0.4.44"
+bitflags = "2.13.0"
+chrono = "0.4.45"
 dirs = "6.0.0"
-env_logger = "0.11.10"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
-log = "0.4.29"
-overtls = { version = "0.3.9" }
+env_logger = "0.11.11"
+image = { version = "=0.25.8", default-features = false, features = ["png"] }
+log = "0.4.33"
+overtls = { version = "0.3.12" }
 qrcode = "0.14.1"
-rqrr = "0.10.1"
 run-as = { version = "1.2.5", default-features = false }
+rxing = "0.9.1"
 screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-socks-hub = "0.2.4"
+serde_json = "1.0.150"
+socks-hub = "0.2.8"
 strum = { version = "0.28.0", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }
-tun2proxy = { version = "0.7.21", default-features = false }
-wxdragon = { version = "0.9.15", default-features = false }
+tun2proxy = { version = "0.8.2", default-features = false }
+uuid = { version = "1.23.5", features = ["v4"] }
+wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163" }
 
 [build-dependencies]
 embed-manifest = "1.5.0"
-embed-resource = "3.0.9"
+embed-resource = "3.0.11"

@@ -126,33 +126,8 @@ fn main() -> std::io::Result<()> {
 
     let _ = wxdragon::main(move |_| {
         // Build model once from settings.servers
-        let mut nodes = cfg_clone.lock().unwrap().servers.clone();
+        let nodes = cfg_clone.lock().unwrap().servers.clone();
 
-        // Demo seed data: when servers key is missing (None), add two example nodes
-        if nodes.is_none() {
-            let mut seed1_client = overtls::ClientConfig::default();
-            seed1_client.client_id = Some("client-001".to_string());
-            seed1_client.server_host = "example.com".to_string();
-            seed1_client.server_port = 443;
-            seed1_client.server_domain = Some("example.com".to_string());
-            let seed1 = ServerNode {
-                remarks: Some("Sample Server 1".to_string()),
-                tunnel_path: overtls::TunnelPath::Single("/".to_string()),
-                client: Some(seed1_client),
-                ..Default::default()
-            };
-            let mut seed2_client = overtls::ClientConfig::default();
-            seed2_client.server_host = "127.0.0.1".to_string();
-            seed2_client.server_port = 8080;
-            seed2_client.disable_tls = Some(true); // indicate TLS disabled
-            let seed2 = ServerNode {
-                remarks: Some("Local Dev".to_string()),
-                tunnel_path: overtls::TunnelPath::Single("/dev".to_string()),
-                client: Some(seed2_client),
-                ..Default::default()
-            };
-            nodes = Some(vec![seed1, seed2]);
-        }
         let nodes = nodes.unwrap_or_default().into_iter().map(|n| Rc::new(RefCell::new(n))).collect();
         let data = Rc::new(RefCell::new(ServerList { nodes }));
         let model = create_server_tree_model(data);
