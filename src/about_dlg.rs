@@ -3,7 +3,7 @@ use wxdragon::prelude::*;
 
 pub fn show_about_dialog(parent: &dyn WxWidget) {
     let title = format!("About {}", APP_TITLE);
-    let (w, h) = (400, 250);
+    let (w, h) = (450, 300);
     let (x, y) = center_rect(parent, w, h);
     let dlg = Dialog::builder(parent, &title).with_position(x, y).with_size(w, h).build();
 
@@ -23,7 +23,11 @@ pub fn show_about_dialog(parent: &dyn WxWidget) {
 
     // right: text vertical sizer
     let right_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    let info = format!("{APP_TITLE}\n\nAn OverTLS server node GUI manager.\n\nCopyright © 2025 - 2026 ssrlive.\nAll rights reserved.");
+    let os = std::env::consts::OS;
+    let build = if cfg!(debug_assertions) { "Debug" } else { "Release" };
+    let t = "A GUI manager for OverTLS server nodes";
+    let v = version_info();
+    let info = format!("{APP_TITLE} ({build} Build for {os})\n\n{t}\nVersion: {v}\n\nCopyright © 2025 - 2026 ssrlive\nAll rights reserved");
     let text = StaticText::builder(&dlg).with_label(&info).build();
     right_sizer.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 20);
     let ok_btn = Button::builder(&dlg).with_id(ID_CANCEL).with_label("OK").build();
@@ -43,4 +47,8 @@ pub fn show_about_dialog(parent: &dyn WxWidget) {
     dlg.show_modal();
 
     dlg.destroy();
+}
+
+pub(crate) const fn version_info() -> &'static str {
+    concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " ", env!("BUILD_TIME"), ")")
 }
