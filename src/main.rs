@@ -71,7 +71,12 @@ mod single_instance;
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
 use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
-use std::{cell::RefCell, rc::Rc, sync::Arc, sync::Mutex};
+use std::{
+    cell::RefCell,
+    net::SocketAddr,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 use wxdragon::prelude::*;
 
 // Toolbar tool IDs (distinct from menu IDs)
@@ -163,13 +168,33 @@ fn main() -> std::io::Result<()> {
         frame.set_icon(&icon_bitmap);
 
         // --- Status Bar Setup ---
-        StatusBar::builder(&frame)
+        let status_bar = StatusBar::builder(&frame)
             .with_fields_count(3)
             .with_status_widths(vec![-1, 150, 100])
             .add_initial_text(0, "Ready")
             .add_initial_text(1, "Center Field")
             .add_initial_text(2, "Right Field")
             .build();
+
+        let status_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+        let status_bar_clone = status_bar;
+        let status_timer = Timer::new(&frame);
+        status_timer.on_tick(move |_evt| {
+            if core::is_overtls_running()
+                && let Some(overtls_cfg) = core::get_running_overtls_node()
+                && let Some(client) = overtls_cfg.client.as_ref()
+            {
+                let addr: SocketAddr = format!("{}:{}", client.listen_host, client.listen_port)
+                    .parse()
+                    .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], client.listen_port)));
+                status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
+            } else {
+                status_bar_clone.set_status_text("Ready", 0);
+            }
+            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 1);
+        });
+        status_timer.start(500, false);
+        *status_timer_holder.borrow_mut() = Some(status_timer);
 
         // --- ToolBar Setup ---
         // Use flat style to ensure separators are drawn visibly
