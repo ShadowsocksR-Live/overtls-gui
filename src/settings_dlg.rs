@@ -123,7 +123,8 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
                 "Restart Required",
             )
             .build();
-            dlg.show_modal();
+            let _ = dlg.show_modal();
+            dlg.destroy();
 
             let mut s = 0;
             if let Ok(Some(status)) = run_as::restart_self(None, false) {

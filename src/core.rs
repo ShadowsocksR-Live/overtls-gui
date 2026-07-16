@@ -94,35 +94,39 @@ pub fn is_tun2proxy_running() -> bool {
 
 pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
     if is_overtls_running() {
-        MessageDialog::builder(parent, "OverTLS is already running.", "Info")
+        let dlg = MessageDialog::builder(parent, "OverTLS is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     }
 
     let Some(weak) = selection_ctx::get_pending_details() else {
-        MessageDialog::builder(parent, "Please select a node first.", "Info")
+        let dlg = MessageDialog::builder(parent, "Please select a node first.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     };
     let Some(rc) = weak.upgrade() else {
-        MessageDialog::builder(parent, "The selected node does not exist or is invalid.", "Info")
+        let dlg = MessageDialog::builder(parent, "The selected node does not exist or is invalid.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     };
     let mut node = rc.borrow().clone();
     let settings = cfg.lock().unwrap().clone();
     crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
     if let Err(e) = node.check_correctness(false) {
-        MessageDialog::builder(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start")
+        let dlg = MessageDialog::builder(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     }
 
@@ -172,18 +176,20 @@ pub fn stop_overtls_only() -> std::io::Result<()> {
 pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     if !run_as::is_elevated() {
         let msg = "Tun2Proxy requires elevated privileges to run. Please restart the application as administrator.";
-        MessageDialog::builder(parent, msg, "Insufficient Privileges")
+        let dlg = MessageDialog::builder(parent, msg, "Insufficient Privileges")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     }
 
     if is_tun2proxy_running() {
-        MessageDialog::builder(parent, "Tun2Proxy is already running.", "Info")
+        let dlg = MessageDialog::builder(parent, "Tun2Proxy is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     }
 
@@ -191,10 +197,11 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
 
     let settings = cfg.lock().unwrap().clone();
     let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, node.as_ref()) else {
-        MessageDialog::builder(parent, "Failed to prepare Tun2Proxy configuration. Please check your settings and make sure the running node has a valid client configuration.", "Error")
+        let dlg = MessageDialog::builder(parent, "Failed to prepare Tun2Proxy configuration. Please check your settings and make sure the running node has a valid client configuration.", "Error")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build()
-            .show_modal();
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
         return;
     };
 

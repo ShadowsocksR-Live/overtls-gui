@@ -102,14 +102,15 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             if let Some(weak) = selection_ctx::get_pending_details() {
                 if let Some(rc) = weak.upgrade() {
                     let title = crate::model::node_title(&rc.borrow());
-                    let res = MessageDialog::builder(
+                    let dlg = MessageDialog::builder(
                         parent,
                         &format!("Do you really want to delete the selected node: \"{title}\"?"),
                         "Confirm Deletion",
                     )
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconWarning)
-                    .build()
-                    .show_modal();
+                    .build();
+                    let res = dlg.show_modal();
+                    dlg.destroy();
                     if res != wxdragon::id::ID_OK {
                         log::info!("Deletion cancelled by user.");
                         return;

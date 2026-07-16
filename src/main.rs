@@ -407,10 +407,11 @@ fn main() -> std::io::Result<()> {
             } else if id == ID_TOOL_TUN2PROXY {
                 if !run_as::is_elevated() {
                     // action not allowed without admin rights
-                    MessageDialog::builder(&frame, "Tun2Proxy requires administrator privileges.", "Permission Denied")
+                    let dlg = MessageDialog::builder(&frame, "Tun2Proxy requires administrator privileges.", "Permission Denied")
                         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                        .build()
-                        .show_modal();
+                        .build();
+                    let _ = dlg.show_modal();
+                    dlg.destroy();
                 } else if core::is_tun2proxy_running() {
                     let _ = core::stop_tun2proxy_only();
                 } else {
