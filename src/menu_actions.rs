@@ -1,7 +1,9 @@
 use crate::selection_ctx;
 use crate::settings::{self, ConfigRef};
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
-use std::path::PathBuf;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
@@ -174,7 +176,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                             cfg.lock()
                                 .unwrap()
                                 .set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
-                            if std::fs::write(&path_option, json_str).is_ok() {
+                            if save_exported_node(&path_option, json_str).is_ok() {
                                 log::debug!("Node exported to: {}", path_option);
                             }
                         }
@@ -370,4 +372,28 @@ fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {
         .ok_or_else(|| std::io::Error::other("Failed to create RGBA image from screenshot"))?;
     let dyn_img = image::DynamicImage::ImageRgba8(rgba_img);
     Ok(dyn_img)
+}
+
+fn save_exported_node<P: AsRef<Path>>(path: P, json_str: String) -> std::io::Result<()> {
+    let path = path.as_ref();
+    std::fs::write(path, json_str)?;
+    adjust_export_file_permissions(path);
+    Ok(())
+}
+
+fn adjust_export_file_permissions(_path: &Path) {
+    #[cfg(unix)]
+    {
+        if let Ok(metadata) = std::fs::metadata(_path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o644);
+            let _ = std::fs::set_permissions(_path, perms);
+        }
+
+        if run_as::is_elevated()
+            && let Ok(sudo_user) = std::env::var("SUDO_USER")
+        {
+            let _ = std::process::Command::new("chown").arg("-R").arg(&sudo_user).arg(_path).status();
+        }
+    }
 }
