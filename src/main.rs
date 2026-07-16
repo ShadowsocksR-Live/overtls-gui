@@ -385,10 +385,20 @@ fn main() -> std::io::Result<()> {
 
         let model_for_menu = model.clone();
         let cfg_for_menu = cfg_clone.clone();
+        let notebook_ref: Rc<RefCell<Option<Notebook>>> = Rc::new(RefCell::new(None));
+        let notebook_for_menu = notebook_ref.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
             // special handling for the three toggle tools
             if id == ID_TOOL_OVERTLS {
+                // UI-level behavior: when no node is selected, switch to the Nodes page.
+                // Keep this here so core remains focused on service start logic only.
+                if !selection_ctx::has_pending_details()
+                    && let Some(notebook) = *notebook_for_menu.borrow()
+                {
+                    notebook.set_selection(0);
+                }
+
                 if core::is_overtls_running() {
                     let _ = core::stop_overtls_only();
                 } else {
@@ -469,19 +479,60 @@ fn main() -> std::io::Result<()> {
 
         // --- Main Panel Layout ---
         let main_panel = Panel::builder(&frame).build();
-        let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-        // Integrate DataView module (top, expands)
-        let dataview_panel = dataview::create_data_view_panel(&main_panel, &model, &frame, &cfg_clone);
-        sizer.add(&dataview_panel, 1, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
+        let notebook = Notebook::builder(&main_panel).build();
+        *notebook_ref.borrow_mut() = Some(notebook);
+        let nodes_panel = dataview::create_data_view_panel(&notebook, &model, &frame, &cfg_clone);
+        let subscriptions_panel = create_subscriptions_panel(&notebook);
+        notebook.add_page(&nodes_panel, "Nodes", true, None);
+        notebook.add_page(&subscriptions_panel, "Subscriptions", false, None);
 
-        // Integrate LogView module (bottom, fixed height)
+        // Integrate LogView module (bottom pane)
         let logview_panel = logview::LogViewPanel::new(&main_panel);
         // Register the TextCtrl in UI-thread-local storage for callbacks
         logview::LOG_TEXT_CTRL.with(|cell| {
             *cell.borrow_mut() = Some(logview_panel.text_ctrl);
         });
-        sizer.add(&logview_panel.panel, 0, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
+
+        // Use AUI manager to layout the notebook and log view as dockable panes.
+        let mgr = AuiManager::builder(&main_panel).build();
+        mgr.add_pane_with_info(
+            &notebook,
+            AuiPaneInfo::new()
+                .with_name("main_notebook")
+                .with_caption("Main")
+                .caption_visible(false)
+                .center_pane()
+                .pane_border(false)
+                .dockable(true)
+                .movable(false)
+                .floatable(false)
+                .best_size(800, 400),
+        );
+        mgr.add_pane_with_info(
+            &logview_panel.panel,
+            AuiPaneInfo::new()
+                .with_name("log_view")
+                .with_caption("Log View")
+                .caption_visible(true)
+                .bottom()
+                .layer(1)
+                .position(0)
+                .pane_border(true)
+                .gripper(false)
+                .floatable(true)
+                .dockable(true)
+                .movable(true)
+                .min_size(400, 160)
+                .best_size(800, 200)
+                .close_button(false)
+                .maximize_button(true),
+        );
+        mgr.update();
+
+        let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
+        main_sizer.add(&main_panel, 1, SizerFlag::Expand | SizerFlag::All, 0);
+        frame.set_sizer(main_sizer, true);
 
         // Auto-save dirty config every second
         let cfg_for_autosave = cfg_clone.clone();
@@ -554,8 +605,6 @@ fn main() -> std::io::Result<()> {
             });
         }
 
-        main_panel.set_sizer(sizer, true);
-
         frame.show(true);
     });
 
@@ -616,4 +665,22 @@ fn do_hide_frame(frame: &Frame) {
     } else {
         frame.show(false);
     }
+}
+
+fn create_subscriptions_panel(parent: &Notebook) -> Panel {
+    let panel = Panel::builder(parent).build();
+    let sizer = BoxSizer::builder(Orientation::Vertical).build();
+
+    let title = StaticText::builder(&panel).with_label("Subscriptions").build();
+    let placeholder = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
+        .with_value("Subscription information and filters will appear here.\n\nUse this pane to manage subscription endpoints and status.")
+        .build();
+    placeholder.set_min_size(Size::new(-1, 200));
+
+    sizer.add(&title, 0, SizerFlag::Top | SizerFlag::Left | SizerFlag::All, 8);
+    sizer.add(&placeholder, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    panel.set_sizer(sizer, true);
+
+    panel
 }

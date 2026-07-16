@@ -9,8 +9,8 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use wxdragon::*;
 
-pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, frame: &Frame, cfg: &ConfigRef) -> Panel {
-    // Create a panel for the parent panel
+pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, frame: &Frame, cfg: &ConfigRef) -> Panel {
+    // Create a panel for the parent widget
     let panel = Panel::builder(parent).build();
 
     // Create a data view control

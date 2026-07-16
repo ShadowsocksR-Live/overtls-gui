@@ -22,7 +22,7 @@ various libraries, overtls-gui aims to enhance your proxy management workflow.
 """
 
 [dependencies]
-bitflags = "2.13.0"
+bitflags = "2.13.1"
 chrono = "0.4.45"
 dirs = "6.0.0"
 env_logger = "0.11.11"
@@ -38,8 +38,10 @@ serde_json = "1.0.150"
 strum = { version = "0.28.0", features = ["derive"] }
 tokio = { version = "1.52.3", features = ["full"] }
 tun2proxy = { version = "0.8.2", default-features = false }
-uuid = { version = "1.23.5", features = ["v4"] }
-wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163" }
+uuid = { version = "1.24.0", features = ["v4"] }
+wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163", features = [
+    "aui",
+] }
 
 [build-dependencies]
 chrono = "0.4.45"
