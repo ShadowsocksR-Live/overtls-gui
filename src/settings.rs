@@ -4,6 +4,7 @@
 use crate::ServerNode;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use wxdragon::prelude::*;
 
 /// Top-level application configuration.
@@ -31,10 +32,14 @@ pub struct Config {
     pub servers: Option<Vec<ServerNode>>,
 }
 
+pub(crate) type ConfigRef = std::sync::Arc<std::sync::Mutex<Config>>;
+
 pub(crate) const WIDGET_MARGIN: i32 = 2;
 pub(crate) const APP_TITLE: &str = "OverTLS-GUI";
 pub(crate) const MAIN_ICON: &[u8] = include_bytes!("../assets/main.png");
 pub(crate) const ICON_SIZE: u32 = 72;
+
+static DIRTY_FLAG: AtomicBool = AtomicBool::new(false);
 
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Self {
@@ -63,8 +68,8 @@ impl Config {
         cfg
     }
 
-    pub fn save<P: AsRef<Path>>(&self, path: P) {
-        let _ = std::fs::write(path, serde_json::to_string_pretty(self).unwrap());
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
+        std::fs::write(path, serde_json::to_string_pretty(self).unwrap())
     }
 
     pub fn get_last_opened_dir(&self) -> std::path::PathBuf {
@@ -77,6 +82,7 @@ impl Config {
 
     pub fn set_last_opened_dir<P: AsRef<Path>>(&mut self, path: P) {
         self.last_opened_dir = Some(path.as_ref().to_path_buf());
+        mark_dirty();
     }
 }
 
@@ -181,13 +187,32 @@ impl Default for LoggingSettings {
 
 pub fn load_settings() -> Config {
     let config_path: std::path::PathBuf = retrieve_config_path();
-    Config::load(&config_path)
+    let cfg = Config::load(&config_path);
+    clear_dirty();
+    cfg
 }
 
-pub fn save_settings(cfg: &Config) {
+pub fn save_settings(cfg: &Config) -> bool {
     let config_path: std::path::PathBuf = retrieve_config_path();
     log::info!("Saving settings to {}", config_path.display());
-    cfg.save(&config_path);
+    if cfg.save(&config_path).is_ok() {
+        clear_dirty();
+        true
+    } else {
+        false
+    }
+}
+
+pub fn mark_dirty() {
+    DIRTY_FLAG.store(true, Ordering::Relaxed);
+}
+
+pub fn clear_dirty() {
+    DIRTY_FLAG.store(false, Ordering::Relaxed);
+}
+
+pub fn is_dirty() -> bool {
+    DIRTY_FLAG.load(Ordering::Relaxed)
 }
 
 fn retrieve_config_path() -> std::path::PathBuf {

@@ -125,6 +125,8 @@ fn main() -> std::io::Result<()> {
     // without needing to `mem::forget` it.
     let timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
     let timer_holder_clone = timer_holder.clone();
+    let autosave_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+    let autosave_timer_holder_clone = autosave_timer_holder.clone();
 
     let _ = wxdragon::main(move |_| {
         // Build model once from settings.servers
@@ -470,7 +472,7 @@ fn main() -> std::io::Result<()> {
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
         // Integrate DataView module (top, expands)
-        let dataview_panel = dataview::create_data_view_panel(&main_panel, &model, &frame);
+        let dataview_panel = dataview::create_data_view_panel(&main_panel, &model, &frame, &cfg_clone);
         sizer.add(&dataview_panel, 1, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
 
         // Integrate LogView module (bottom, fixed height)
@@ -480,6 +482,28 @@ fn main() -> std::io::Result<()> {
             *cell.borrow_mut() = Some(logview_panel.text_ctrl);
         });
         sizer.add(&logview_panel.panel, 0, SizerFlag::Expand | SizerFlag::All, settings::WIDGET_MARGIN);
+
+        // Auto-save dirty config every second
+        let cfg_for_autosave = cfg_clone.clone();
+        let model_for_autosave = model.clone();
+        let autosave_timer = Timer::new(&frame);
+        autosave_timer.on_tick(move |_evt| {
+            if settings::is_dirty()
+                && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+                    list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+                })
+            {
+                let mut cfg_lock = cfg_for_autosave.lock().unwrap();
+                cfg_lock.servers = Some(servers);
+                if settings::save_settings(&cfg_lock) {
+                    log::debug!("Auto-saved dirty settings.");
+                } else {
+                    log::error!("Auto-save of dirty settings failed.");
+                }
+            }
+        });
+        autosave_timer.start(1000, false);
+        *autosave_timer_holder_clone.borrow_mut() = Some(autosave_timer);
 
         // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
         {

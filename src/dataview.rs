@@ -3,12 +3,13 @@ use crate::ServerNode;
 use crate::model::get_raw_pointer;
 use crate::model::{NodeFields, ServerList, find_node_via_raw_ptr};
 use crate::selection_ctx;
-use crate::settings::WIDGET_MARGIN;
+use crate::settings::ConfigRef;
+use crate::settings::{self, WIDGET_MARGIN};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use wxdragon::*;
 
-pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, frame: &Frame) -> Panel {
+pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, frame: &Frame, cfg: &ConfigRef) -> Panel {
     // Create a panel for the parent panel
     let panel = Panel::builder(parent).build();
 
@@ -89,6 +90,7 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
     });
 
     let model_for_selection = model.clone();
+    let cfg_for_dnd = cfg.clone();
     dataview.on_selection_changed(move |event: DataViewEvent| {
         let weak_opt = if let Some(item) = event.get_item()
             && let Some(needle_ptr) = item.get_id::<ServerNode>()
@@ -114,7 +116,7 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
     // DataViewCtrl uses an internal child window for the actual list contents.
     // On some platforms (macOS/GTK) the outer control itself may not receive drop events,
     // so attach the drop target to the parent panel instead.
-    enable_widget_dnd(&panel, model);
+    enable_widget_dnd(&panel, model, &cfg_for_dnd);
 
     // Layout
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -125,8 +127,9 @@ pub fn create_data_view_panel(parent: &Panel, model: &CustomDataViewTreeModel, f
 }
 
 // Enable file drag-and-drop on the DataViewCtrl (via the parent panel).
-fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeModel) {
+fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeModel, cfg: &ConfigRef) {
     let model_for_dnd = model.clone();
+    let cfg_for_dnd = cfg.clone();
     FileDropTarget::builder(drop_target)
         .with_on_enter(|_x, _y, _def_result| {
             log::info!("DataView DnD: OnEnter at ({_x}, {_y})");
@@ -188,8 +191,16 @@ fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeMode
                 log::info!("DnD import: notifying items_added for {} item(s)", added_ids.len());
                 // Safety: CustomDataViewTreeModel tracks items by pointer IDs per model contract
                 model_for_dnd.items_added::<ServerNode>(None, added_ids.as_slice());
+                settings::mark_dirty();
+                if let Ok(mut cfg_lock) = cfg_for_dnd.lock()
+                    && let Some(servers) = model_for_dnd.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+                        list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+                    })
+                {
+                    cfg_lock.servers = Some(servers);
+                    settings::save_settings(&cfg_lock);
+                }
             }
-
             true
         })
         .build();

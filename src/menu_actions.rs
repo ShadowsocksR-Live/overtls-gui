@@ -1,14 +1,23 @@
 use crate::selection_ctx;
-use crate::settings::Config;
+use crate::settings::{self, ConfigRef};
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::prelude::*;
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
-pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &Arc<Mutex<Config>>) {
+pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &ConfigRef) {
+    fn persist_model_servers(cfg: &ConfigRef, model: &CustomDataViewTreeModel) {
+        if let Some(servers) = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+            list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+        }) {
+            let mut cfg_lock = cfg.lock().unwrap();
+            cfg_lock.servers = Some(servers);
+            settings::save_settings(&cfg_lock);
+        }
+    }
+
     let Ok(menu_id) = MenuId::try_from(id) else {
         log::warn!("Received unknown Menu ID: {id}");
         return;
@@ -60,6 +69,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                         // Notify the view that this item changed
                         let ptr: *const ServerNode = get_raw_pointer(&rc);
                         model.item_changed::<ServerNode>(ptr);
+                        persist_model_servers(cfg, model);
                     }
                 } else {
                     // Node no longer exists; open dialog without prefill (no commit target)
@@ -81,6 +91,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                 });
                 if let Some(Some(ptr)) = added {
                     model.item_added::<ServerNode>(None, ptr);
+                    persist_model_servers(cfg, model);
                 }
             }
         }
@@ -121,6 +132,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                         model.item_deleted::<ServerNode>(None, child_ptr);
                         // Clear selection context as the item is gone
                         selection_ctx::set_pending_details(None);
+                        persist_model_servers(cfg, model);
                     } else {
                         log::warn!("Delete requested, but selected node was not found in model.");
                     }
@@ -197,6 +209,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                         });
                         if let Some(Some(ptr)) = added {
                             model.item_added::<ServerNode>(None, ptr);
+                            persist_model_servers(cfg, model);
                         }
                     }
                 }
@@ -233,6 +246,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                 });
                 if let Some(ptr) = added {
                     model.item_added::<ServerNode>(None, ptr);
+                    persist_model_servers(cfg, model);
                 }
             } else {
                 log::error!("Failed to paste node.");

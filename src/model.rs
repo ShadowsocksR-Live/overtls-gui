@@ -117,7 +117,7 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
         node.client = Some(Default::default());
     }
 
-    match NodeFields::from_bits_retain(col) {
+    let modified = match NodeFields::from_bits_retain(col) {
         NodeFields::Remarks => {
             if let Some(s) = var.get_string() {
                 node.remarks = if s.trim().is_empty() { None } else { Some(s) };
@@ -211,7 +211,12 @@ fn set_value_cb(data: &Rc<RefCell<ServerList>>, item: Option<&ServerNode>, col: 
             }
         }
         _ => false,
+    };
+
+    if modified {
+        crate::settings::mark_dirty();
     }
+    modified
 }
 
 fn compare_cb(_data: &Rc<RefCell<ServerList>>, a: &ServerNode, b: &ServerNode, col: u32, asc: bool) -> i32 {

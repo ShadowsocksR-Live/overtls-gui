@@ -130,6 +130,8 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
                 s = status.code().unwrap_or_default();
             }
             ::std::process::exit(s);
+        } else {
+            save_settings(&cfg.lock().unwrap());
         }
     }
 }
