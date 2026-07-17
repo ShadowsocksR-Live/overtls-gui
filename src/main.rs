@@ -673,53 +673,19 @@ fn do_hide_frame(frame: &Frame) {
     }
 }
 
-fn prompt_add_subscription(parent: &Frame, cfg: &ConfigRef) {
-    let dialog = Dialog::builder(parent, "Subscribe")
-        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(600, 150)
+fn prompt_add_subscription(parent: &dyn WxWidget, cfg: &ConfigRef) {
+    let dialog = TextEntryDialog::builder(parent, "Enter a valid subscription URL:", "Subscribe")
+        .with_default_value("https://")
+        .with_size(Size::new(600, 150))
         .build();
 
-    let panel = Panel::builder(&dialog).build();
-    let input = TextCtrl::builder(&panel)
-        .with_value("https://")
-        .with_size(Size::new(380, 24))
-        .build();
-
-    let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
-    let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
-
-    let dialog_for_ok = dialog;
-    ok_button.on_click(move |_event| {
-        dialog_for_ok.end_modal(ID_OK);
-    });
-    let dialog_for_cancel = dialog;
-    cancel_button.on_click(move |_event| {
-        dialog_for_cancel.end_modal(ID_CANCEL);
-    });
-
-    let title = StaticText::builder(&panel).with_label("Enter a valid subscription URL:").build();
-
-    let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-    button_sizer.add(&cancel_button, 0, SizerFlag::All, 4);
-    button_sizer.add(&ok_button, 0, SizerFlag::All, 4);
-
-    let panel_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    panel_sizer.add(&title, 0, SizerFlag::All, 8);
-    panel_sizer.add(&input, 0, SizerFlag::Expand | SizerFlag::All, 8);
-    panel_sizer.add_sizer(&button_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 0);
-    panel.set_sizer(panel_sizer, true);
-    dialog.set_affirmative_id(ID_OK);
-    dialog.set_escape_id(ID_CANCEL);
-
-    let result = dialog.show_modal();
-    if result != ID_OK {
+    if dialog.show_modal() != ID_OK {
         dialog.destroy();
         return;
     }
 
-    let url_text = input.get_value().trim().to_string();
+    let url_text = dialog.get_value().unwrap_or_default().trim().to_string();
     dialog.destroy();
-
     if url_text.is_empty() {
         log::warn!("Subscription URL cannot be empty.");
         return;
