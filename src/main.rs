@@ -7,6 +7,7 @@ pub enum MenuId {
     ScanQrCode = 1002,
     ImportNodeFile = 1003,
     New = 1004,
+    Subscribe = 1007,
     OverTls = 1005,
     Tun2proxy = 1006,
     Open = 1008,
@@ -35,6 +36,7 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::ScanQrCode as i32 => Ok(MenuId::ScanQrCode),
             x if x == MenuId::ImportNodeFile as i32 => Ok(MenuId::ImportNodeFile),
             x if x == MenuId::New as i32 => Ok(MenuId::New),
+            x if x == MenuId::Subscribe as i32 => Ok(MenuId::Subscribe),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
@@ -70,7 +72,7 @@ mod single_instance;
 
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
-use settings::{MAIN_ICON, WindowConfig, create_bitmap_from_memory};
+use settings::{ConfigRef, MAIN_ICON, WindowConfig, create_bitmap_from_memory};
 use std::{
     cell::RefCell,
     net::SocketAddr,
@@ -314,6 +316,7 @@ fn main() -> std::io::Result<()> {
         // Main menu
         let main_menu = Menu::builder()
             .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
+            .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
             .append_separator()
             .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+Shift+Q", "Scan QR code from screen")
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
@@ -417,6 +420,8 @@ fn main() -> std::io::Result<()> {
                 } else {
                     core::start_tun2proxy_only(&frame, &cfg_for_menu);
                 }
+            } else if id == MenuId::Subscribe as i32 {
+                prompt_add_subscription(&frame, &cfg_for_menu);
             } else {
                 menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
             }
@@ -666,6 +671,69 @@ fn do_hide_frame(frame: &Frame) {
     } else {
         frame.show(false);
     }
+}
+
+fn prompt_add_subscription(parent: &Frame, cfg: &ConfigRef) {
+    let dialog = Dialog::builder(parent, "Subscribe")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(600, 150)
+        .build();
+
+    let panel = Panel::builder(&dialog).build();
+    let input = TextCtrl::builder(&panel)
+        .with_value("https://")
+        .with_size(Size::new(380, 24))
+        .build();
+
+    let ok_button = Button::builder(&panel).with_label("OK").with_id(ID_OK).build();
+    let cancel_button = Button::builder(&panel).with_label("Cancel").with_id(ID_CANCEL).build();
+
+    let dialog_for_ok = dialog;
+    ok_button.on_click(move |_event| {
+        dialog_for_ok.end_modal(ID_OK);
+    });
+    let dialog_for_cancel = dialog;
+    cancel_button.on_click(move |_event| {
+        dialog_for_cancel.end_modal(ID_CANCEL);
+    });
+
+    let title = StaticText::builder(&panel).with_label("Enter a valid subscription URL:").build();
+
+    let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    button_sizer.add(&cancel_button, 0, SizerFlag::All, 4);
+    button_sizer.add(&ok_button, 0, SizerFlag::All, 4);
+
+    let panel_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    panel_sizer.add(&title, 0, SizerFlag::All, 8);
+    panel_sizer.add(&input, 0, SizerFlag::Expand | SizerFlag::All, 8);
+    panel_sizer.add_sizer(&button_sizer, 0, SizerFlag::AlignRight | SizerFlag::All, 0);
+    panel.set_sizer(panel_sizer, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let result = dialog.show_modal();
+    if result != ID_OK {
+        dialog.destroy();
+        return;
+    }
+
+    let url_text = input.get_value().trim().to_string();
+    dialog.destroy();
+
+    if url_text.is_empty() {
+        log::warn!("Subscription URL cannot be empty.");
+        return;
+    }
+
+    let parsed_url = match url::Url::parse(&url_text) {
+        Ok(url) => url,
+        Err(err) => {
+            log::warn!("Invalid subscription URL: {err}");
+            return;
+        }
+    };
+
+    cfg.lock().unwrap().add_subscription(parsed_url);
 }
 
 fn create_subscriptions_panel(parent: &Notebook) -> Panel {

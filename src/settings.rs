@@ -30,6 +30,9 @@ pub struct Config {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub servers: Option<Vec<ServerNode>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscriptions: Option<Vec<url::Url>>,
 }
 
 pub(crate) type ConfigRef = std::sync::Arc<std::sync::Mutex<Config>>;
@@ -46,15 +49,7 @@ impl Config {
         let mut cfg = std::fs::read_to_string(path.as_ref())
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(Config {
-                window: Some(WindowConfig::default()),
-                servers: None,
-                last_opened_dir: None,
-                run_as_admin: None,
-                over_tls: None,
-                tun2proxy: None,
-                logging: None,
-            });
+            .unwrap_or(Config::default());
 
         // sanitize window coordinates: negative values (e.g. -1) are invalid and
         // typically result from querying a hidden/uninitialized frame.  Replace
@@ -84,6 +79,23 @@ impl Config {
         self.last_opened_dir = Some(path.as_ref().to_path_buf());
         mark_dirty();
     }
+
+    pub fn add_subscription(&mut self, url: url::Url) {
+        let subscriptions = self.subscriptions.get_or_insert_with(Vec::new);
+        if subscriptions.iter().any(|existing| existing == &url) {
+            log::info!("Subscription URL already exists: {}", url);
+            return;
+        }
+        subscriptions.push(url);
+        dedupe_subscriptions(subscriptions);
+
+        mark_dirty();
+    }
+}
+
+fn dedupe_subscriptions(urls: &mut Vec<url::Url>) {
+    let mut seen = std::collections::HashSet::new();
+    urls.retain(|url| seen.insert(url.as_str().to_string()));
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
