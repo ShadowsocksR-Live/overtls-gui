@@ -7,17 +7,19 @@ pub enum MenuId {
     ScanQrCode = 1002,
     ImportNodeFile = 1003,
     New = 1004,
-    Subscribe = 1007,
     OverTls = 1005,
     Tun2proxy = 1006,
-    Open = 1008,
-    Quit = 1009,
+    Open = 1007,
+    Quit = 1008,
     ViewDetails = 3001,
     ExportNode = 3002,
     ShowQrCode = 3003,
     Delete = 3004,
     Copy = 3005,
     Paste = 3006,
+    Subscribe = 3501,
+    EditSubscription = 3502,
+    DeleteSubscription = 3503,
     About = 4001,
 }
 
@@ -37,6 +39,8 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::ImportNodeFile as i32 => Ok(MenuId::ImportNodeFile),
             x if x == MenuId::New as i32 => Ok(MenuId::New),
             x if x == MenuId::Subscribe as i32 => Ok(MenuId::Subscribe),
+            x if x == MenuId::EditSubscription as i32 => Ok(MenuId::EditSubscription),
+            x if x == MenuId::DeleteSubscription as i32 => Ok(MenuId::DeleteSubscription),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
@@ -316,7 +320,6 @@ fn main() -> std::io::Result<()> {
         // Main menu
         let main_menu = Menu::builder()
             .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
-            .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
             .append_separator()
             .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+Shift+Q", "Scan QR code from screen")
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
@@ -328,8 +331,8 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
             .build();
 
-        // Node menu
-        let node_menu = Menu::builder()
+        // Nodes menu
+        let nodes_menu = Menu::builder()
             .append_item(MenuId::ViewDetails.into(), "View Details", "View node details")
             .append_item(MenuId::ExportNode.into(), "Export Node", "Export node")
             .append_item(MenuId::ShowQrCode.into(), "Show QR Code", "Show QR code for node")
@@ -340,6 +343,13 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::Paste.into(), "Paste\tCtrl+V", "Paste node")
             .build();
 
+        // Subscriptions menu
+        let subscriptions_menu = Menu::builder()
+            .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
+            .append_item(MenuId::EditSubscription.into(), "Edit", "Edit the selected subscription URL")
+            .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
+            .build();
+
         // Help menu
         let help_menu = Menu::builder()
             .append_item(MenuId::About.into(), "About", "Show about dialog")
@@ -347,7 +357,8 @@ fn main() -> std::io::Result<()> {
 
         let menubar = MenuBar::builder()
             .append(main_menu, "Main")
-            .append(node_menu, "Node")
+            .append(nodes_menu, "Nodes")
+            .append(subscriptions_menu, "Subscriptions")
             .append(help_menu, "Help")
             .build();
         frame.set_menu_bar(menubar);
@@ -357,9 +368,15 @@ fn main() -> std::io::Result<()> {
             sync_menu(&mbar);
         }
 
+        let subscriptions_list_handle: Rc<RefCell<Option<DataViewListCtrl>>> = Rc::new(RefCell::new(None));
+        let selected_subscription_row: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
+        let notebook_ref: Rc<RefCell<Option<Notebook>>> = Rc::new(RefCell::new(None));
+
         // Dynamically enable/disable Node menu items when the menu bar opens
         // Disable actions that require a selection if none is present
         let frame_for_menu_open = frame;
+        let notebook_for_menu_open = notebook_ref.clone();
+        let subscriptions_list_handle_for_open = subscriptions_list_handle.clone();
         frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
             // Only handle the menubar case here; popup menus use a different path
             if event.is_popup() {
@@ -381,6 +398,18 @@ fn main() -> std::io::Result<()> {
                     let _ = mbar.enable_item(id.into(), has_sel);
                 }
 
+                let sub_has_sel = if let Some(notebook) = &*notebook_for_menu_open.borrow() {
+                    notebook.selection() == 1
+                        && subscriptions_list_handle_for_open
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|list| list.get_selected_row().is_some())
+                } else {
+                    false
+                };
+                let _ = mbar.enable_item(MenuId::EditSubscription.into(), sub_has_sel);
+                let _ = mbar.enable_item(MenuId::DeleteSubscription.into(), sub_has_sel);
+
                 // also update the checked state of our three toggle actions
                 sync_menu(&mbar);
             }
@@ -388,8 +417,9 @@ fn main() -> std::io::Result<()> {
 
         let model_for_menu = model.clone();
         let cfg_for_menu = cfg_clone.clone();
-        let notebook_ref: Rc<RefCell<Option<Notebook>>> = Rc::new(RefCell::new(None));
         let notebook_for_menu = notebook_ref.clone();
+        let subscriptions_list_handle_for_menu = subscriptions_list_handle.clone();
+        let selected_subscription_row_for_menu = selected_subscription_row.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
             // special handling for the three toggle tools
@@ -421,7 +451,24 @@ fn main() -> std::io::Result<()> {
                     core::start_tun2proxy_only(&frame, &cfg_for_menu);
                 }
             } else if id == MenuId::Subscribe as i32 {
-                prompt_add_subscription(&frame, &cfg_for_menu);
+                prompt_add_subscription(&frame, &cfg_for_menu, &subscriptions_list_handle_for_menu, &notebook_for_menu);
+            } else if id == MenuId::EditSubscription as i32 {
+                if let Some(row) = *selected_subscription_row_for_menu.borrow() {
+                    prompt_edit_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+                }
+            } else if id == MenuId::DeleteSubscription as i32 {
+                if let Some(row) = *selected_subscription_row_for_menu.borrow() {
+                    prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+                }
+            } else if id == MenuId::Delete as i32 {
+                if let Some(notebook) = *notebook_for_menu.borrow()
+                    && notebook.selection() == 1
+                    && let Some(row) = *selected_subscription_row_for_menu.borrow()
+                {
+                    prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+                } else {
+                    menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
+                }
             } else {
                 menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
             }
@@ -489,7 +536,9 @@ fn main() -> std::io::Result<()> {
         let notebook = Notebook::builder(&main_panel).build();
         *notebook_ref.borrow_mut() = Some(notebook);
         let nodes_panel = dataview::create_data_view_panel(&notebook, &model, &frame, &cfg_clone);
-        let subscriptions_panel = create_subscriptions_panel(&notebook);
+        let subscriptions = cfg_clone.lock().unwrap().get_subscriptions();
+        let subscriptions_panel =
+            create_subscriptions_panel(&notebook, &subscriptions, &subscriptions_list_handle, &selected_subscription_row);
         notebook.add_page(&nodes_panel, "Nodes", true, None);
         notebook.add_page(&subscriptions_panel, "Subscriptions", false, None);
 
@@ -673,7 +722,12 @@ fn do_hide_frame(frame: &Frame) {
     }
 }
 
-fn prompt_add_subscription(parent: &dyn WxWidget, cfg: &ConfigRef) {
+fn prompt_add_subscription(
+    parent: &dyn WxWidget,
+    cfg: &ConfigRef,
+    subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
+    notebook_ref: &Rc<RefCell<Option<Notebook>>>,
+) {
     let dialog = TextEntryDialog::builder(parent, "Enter a valid subscription URL:", "Subscribe")
         .with_default_value("https://")
         .with_size(Size::new(600, 150))
@@ -700,21 +754,164 @@ fn prompt_add_subscription(parent: &dyn WxWidget, cfg: &ConfigRef) {
     };
 
     cfg.lock().unwrap().add_subscription(parsed_url);
+    let subscriptions = cfg.lock().unwrap().get_subscriptions();
+    if let Some(list) = &*subscriptions_list_handle.borrow() {
+        refresh_subscriptions_list(list, &subscriptions);
+    }
+    if let Some(notebook) = &*notebook_ref.borrow() {
+        notebook.set_selection(1);
+    }
 }
 
-fn create_subscriptions_panel(parent: &Notebook) -> Panel {
+fn refresh_subscriptions_list(list: &DataViewListCtrl, subscriptions: &[url::Url]) {
+    list.delete_all_items();
+
+    for url in subscriptions {
+        let values = [Variant::from_string(url.as_str())];
+        list.append_item(&values);
+    }
+}
+
+fn prompt_delete_subscription(
+    parent: &dyn WxWidget,
+    cfg: &ConfigRef,
+    row: usize,
+    subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
+) {
+    let subscriptions = cfg.lock().unwrap().get_subscriptions();
+    if row >= subscriptions.len() {
+        return;
+    }
+
+    let url = &subscriptions[row];
+    let message = format!("Are you sure you want to delete the subscription URL:\n\n{}", url.as_str());
+    let dialog = MessageDialog::builder(parent, &message, "Confirm Delete")
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::Cancel | MessageDialogStyle::IconQuestion)
+        .build();
+
+    if dialog.show_modal() == ID_OK {
+        delete_subscription(cfg, url, subscriptions_list_handle);
+    }
+    dialog.destroy();
+}
+
+fn prompt_edit_subscription(
+    parent: &dyn WxWidget,
+    cfg: &ConfigRef,
+    row: usize,
+    subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
+) {
+    let subscriptions = cfg.lock().unwrap().get_subscriptions();
+    if row >= subscriptions.len() {
+        return;
+    }
+
+    let current_url = subscriptions[row].clone();
+    let dialog = TextEntryDialog::builder(parent, "Edit subscription URL:", "Edit Subscription")
+        .with_default_value(current_url.as_str())
+        .with_size(Size::new(600, 150))
+        .build();
+
+    if dialog.show_modal() != ID_OK {
+        dialog.destroy();
+        return;
+    }
+
+    let url_text = dialog.get_value().unwrap_or_default().trim().to_string();
+    dialog.destroy();
+    if url_text.is_empty() {
+        log::warn!("Subscription URL cannot be empty.");
+        return;
+    }
+
+    let parsed_url = match url::Url::parse(&url_text) {
+        Ok(url) => url,
+        Err(err) => {
+            log::warn!("Invalid subscription URL: {err}");
+            return;
+        }
+    };
+
+    let mut cfg_lock = cfg.lock().unwrap();
+    if !cfg_lock.replace_subscription(&current_url, parsed_url) {
+        log::warn!("Failed to replace subscription URL: {}", current_url);
+        return;
+    }
+
+    if let Some(list) = &*subscriptions_list_handle.borrow() {
+        refresh_subscriptions_list(list, &cfg_lock.get_subscriptions());
+    }
+}
+
+fn delete_subscription(cfg: &ConfigRef, url: &url::Url, subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>) {
+    let mut cfg_lock = cfg.lock().unwrap();
+    if !cfg_lock.remove_subscription(url) {
+        log::warn!("Subscription URL not found for deletion: {}", url);
+        return;
+    }
+
+    if let Some(list) = &*subscriptions_list_handle.borrow() {
+        refresh_subscriptions_list(list, &cfg_lock.get_subscriptions());
+    }
+}
+
+fn create_subscriptions_panel(
+    parent: &dyn WxWidget,
+    subscriptions: &[url::Url],
+    subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
+    selected_subscription_row: &Rc<RefCell<Option<usize>>>,
+) -> Panel {
     let panel = Panel::builder(parent).build();
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
-    let title = StaticText::builder(&panel).with_label("Subscriptions").build();
-    let placeholder = TextCtrl::builder(&panel)
-        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-        .with_value("Subscription information and filters will appear here.\n\nUse this pane to manage subscription endpoints and status.")
+    let subscription_list = DataViewListCtrl::builder(&panel)
+        .with_size(Size::new(760, 500))
+        .with_style(DataViewStyle::Multiple | DataViewStyle::RowLines | DataViewStyle::VerticalRules)
         .build();
-    placeholder.set_min_size(Size::new(-1, 200));
 
-    sizer.add(&title, 0, SizerFlag::Top | SizerFlag::Left | SizerFlag::All, 8);
-    sizer.add(&placeholder, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    subscription_list.append_text_column(
+        "URL",
+        0,
+        DataViewAlign::Left,
+        760,
+        DataViewColumnFlags::Resizable | DataViewColumnFlags::Sortable,
+    );
+
+    let selected_subscription_row_for_context = selected_subscription_row.clone();
+    subscription_list.on_item_context_menu(move |event| {
+        if let Some(row) = event.get_row() {
+            let row_usize = row as usize;
+            *selected_subscription_row_for_context.borrow_mut() = Some(row_usize);
+            subscription_list.select_row(row_usize);
+            subscription_list.set_focus();
+
+            let mut menu = Menu::builder()
+                .append_item(MenuId::EditSubscription.into(), "Edit", "Edit the selected subscription URL")
+                .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
+                .build();
+
+            let screen_point = event.get_position().map(|p| subscription_list.client_to_screen(p));
+            panel.popup_menu(&mut menu, screen_point);
+        }
+    });
+
+    let selected_subscription_row_for_selection = selected_subscription_row.clone();
+    subscription_list.on_selection_changed(move |_event| {
+        if let Some(row) = subscription_list.get_selected_row() {
+            *selected_subscription_row_for_selection.borrow_mut() = Some(row);
+        } else {
+            *selected_subscription_row_for_selection.borrow_mut() = None;
+        }
+    });
+
+    *subscriptions_list_handle.borrow_mut() = Some(subscription_list);
+    if let Some(list) = &*subscriptions_list_handle.borrow() {
+        refresh_subscriptions_list(list, subscriptions);
+    }
+
+    if let Some(list) = &*subscriptions_list_handle.borrow() {
+        sizer.add(list, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    }
     panel.set_sizer(sizer, true);
 
     panel

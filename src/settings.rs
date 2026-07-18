@@ -91,6 +91,31 @@ impl Config {
 
         mark_dirty();
     }
+
+    pub fn get_subscriptions(&self) -> Vec<url::Url> {
+        self.subscriptions.clone().unwrap_or_default()
+    }
+
+    pub fn remove_subscription(&mut self, url: &url::Url) -> bool {
+        if let Some(subscriptions) = &mut self.subscriptions {
+            subscriptions.retain(|existing| existing != url);
+            mark_dirty();
+            return true;
+        }
+        false
+    }
+
+    pub fn replace_subscription(&mut self, old_url: &url::Url, new_url: url::Url) -> bool {
+        if let Some(subscriptions) = &mut self.subscriptions
+            && let Some(pos) = subscriptions.iter().position(|existing| existing == old_url)
+        {
+            subscriptions[pos] = new_url;
+            dedupe_subscriptions(subscriptions);
+            mark_dirty();
+            return true;
+        }
+        false
+    }
 }
 
 fn dedupe_subscriptions(urls: &mut Vec<url::Url>) {
