@@ -20,6 +20,7 @@ pub enum MenuId {
     Subscribe = 3501,
     EditSubscription = 3502,
     DeleteSubscription = 3503,
+    RefreshSubscriptions = 3504,
     About = 4001,
 }
 
@@ -41,6 +42,7 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::Subscribe as i32 => Ok(MenuId::Subscribe),
             x if x == MenuId::EditSubscription as i32 => Ok(MenuId::EditSubscription),
             x if x == MenuId::DeleteSubscription as i32 => Ok(MenuId::DeleteSubscription),
+            x if x == MenuId::RefreshSubscriptions as i32 => Ok(MenuId::RefreshSubscriptions),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
@@ -69,6 +71,7 @@ mod selection_ctx;
 mod settings;
 mod settings_dlg;
 mod show_qrcode_dlg;
+mod subscription_refresh;
 mod util;
 
 // single-instance helper logic extracted to its own module
@@ -83,6 +86,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
+use subscription_refresh::{is_refresh_in_progress, refresh_subscriptions};
 use wxdragon::prelude::*;
 
 // Toolbar tool IDs (distinct from menu IDs)
@@ -343,11 +347,14 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::Paste.into(), "Paste\tCtrl+V", "Paste node")
             .build();
 
+        let refresh_info = "Refresh all subscription URLs in the background";
         // Subscriptions menu
         let subscriptions_menu = Menu::builder()
             .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
             .append_item(MenuId::EditSubscription.into(), "Edit", "Edit the selected subscription URL")
             .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
+            .append_separator()
+            .append_item(MenuId::RefreshSubscriptions.into(), "Refresh all subscriptions", refresh_info)
             .build();
 
         // Help menu
@@ -409,6 +416,7 @@ fn main() -> std::io::Result<()> {
                 };
                 let _ = mbar.enable_item(MenuId::EditSubscription.into(), sub_has_sel);
                 let _ = mbar.enable_item(MenuId::DeleteSubscription.into(), sub_has_sel);
+                let _ = mbar.enable_item(MenuId::RefreshSubscriptions.into(), !is_refresh_in_progress());
 
                 // also update the checked state of our three toggle actions
                 sync_menu(&mbar);
@@ -460,6 +468,8 @@ fn main() -> std::io::Result<()> {
                 if let Some(row) = *selected_subscription_row_for_menu.borrow() {
                     prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
                 }
+            } else if id == MenuId::RefreshSubscriptions as i32 {
+                refresh_subscriptions(&frame, &cfg_for_menu, &model_for_menu);
             } else if id == MenuId::Delete as i32 {
                 if let Some(notebook) = *notebook_for_menu.borrow()
                     && notebook.selection() == 1

@@ -59,7 +59,7 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: O
     Some(result)
 }
 
-fn normalize_connect_host(host: &str) -> &str {
+pub fn normalize_connect_host(host: &str) -> &str {
     match host {
         "0.0.0.0" | "::" | "[::]" => "127.0.0.1",
         _ => host,
