@@ -2,31 +2,33 @@
 
 [中文版 README](README-CN.md)
 
-OverTLS GUI is a cross-platform graphical management tool for
-[OverTLS](https://github.com/ShadowsocksR-Live/OverTLS) client nodes, built with Rust and FLTK.
-It provides an intuitive interface for configuring, importing, and running OverTLS nodes,
-supporting Linux, Windows, and macOS.
+OverTLS GUI is a Rust desktop application built with `wxDragon` to provide a graphical
+management interface for [OverTLS](https://github.com/ShadowsocksR-Live/OverTLS) proxy nodes.
+It enables subscription-based node management, QR code import/export, logging, and system tray integration
+on Linux, Windows, and macOS.
 
-## Features
+## Highlights
 
-- **Node Management**: Create, import, delete, and view node details.
-- **Configuration Import**: Import node configurations from JSON files, clipboard, or by scanning QR codes from the screen.
-- **System Settings**: Configure local listening, connection pool, DNS cache, Tun2proxy proxy, and more.
-- **Log Viewer**: Real-time log display at the bottom of the main window, with adjustable log levels.
-- **System Tray Support**: Minimize to tray, show/hide main window, and quit from tray menu.
-- **Privilege Check**: Automatically checks for root/admin privileges on Linux and restarts as administrator if needed.
-- **Multi-language Support**: UI text can auto-switch based on system language (if configured).
+- **Node Management**: add, edit, delete, and inspect OverTLS server nodes.
+- **Subscription Support**: manage subscription URLs, refresh subscription feeds, and merge nodes without duplicates.
+- **Automatic Refresh**: toggleable `Refresh automatically` menu item with configurable refresh interval.
+- **QR Code Support**: scan QR codes from screen capture and display node QR codes.
+- **Settings Dialog**: configure OverTLS, Tun2proxy, logging, and subscription refresh interval.
+- **System Tray**: minimize to tray, restore the window, and access settings from the tray menu.
+- **Privilege Handling**: detect admin/root status and restart elevated when required on Linux.
+- **Logging**: integrated log capture with configurable log settings.
 
 ## Installation & Build
 
+### Requirements
 
-### Dependencies
+- Rust 1.85+
+- `cargo` toolchain
+- Native GUI dependencies for `wxDragon`
 
-- [Rust 1.85+](https://www.rust-lang.org/)
+### Linux Dependencies
 
-#### Additional Linux Build Dependencies
-
-On Linux, you need to install the following system libraries before building (as used in CI):
+On Debian/Ubuntu, install the common native packages required to build the GUI:
 
 ```bash
 sudo apt-get update
@@ -38,57 +40,52 @@ sudo apt-get install --fix-missing -y libxmu-dev \
 ### Build
 
 ```bash
-git clone https://github.com/ShadowsocksR-Live/overtls-gui.git
-cd overtls-gui
 cargo build --release
 ```
 
 ### Run
 
-On Windows/macOS/Linux:
-
 ```bash
 ./target/release/overtls-gui
 ```
 
-### Build Bundles (Optional)
+### Optional Bundles
 
-For creating platform-specific bundles (e.g., `.msi` for Windows, `.dmg` for macOS, `.deb` for Linux),
-you can use the `cargo-bundle` tool or similar tools.
+The project contains `cargo-bundle` metadata for packaging on supported platforms.
+Example for Linux:
 
 ```bash
 cargo install cargo-bundle
-
-cargo bundle --release --format deb --target x86_64-unknown-linux-gnu # For Linux .deb package
-cargo bundle --release --format osx --target x86_64-apple-darwin # For macOS .app executable package
-
-cargo build
-dotnet build msi/installer.wixproj # For Windows .msi installer (requires .NET SDK and WiX Toolset)
+cargo bundle --release --format deb --target x86_64-unknown-linux-gnu
 ```
 
 ## Usage
 
-- Use the menu bar to import nodes (from file, clipboard, or QR code), create new nodes, delete, and view details.
-- Click "Settings" to configure local listening, Tun2proxy, logging, and other parameters.
-- The tray icon allows you to show/hide the main window or quit the application at any time.
-- Node details support custom remarks, tunnel path, TLS, client parameters, and more.
+- Open `Settings` from the menu or tray to configure OverTLS, Tun2proxy, logging, and subscription refresh.
+- Use the `Subscriptions` menu to add, edit, delete, or manually refresh subscription URLs.
+- Enable `Refresh automatically` in the `Subscriptions` menu to run periodic background refreshes.
+- Configure the refresh interval in minutes via the settings dialog.
+- Scan QR codes from the screen using `Scan QR Code` and display node QR codes with `Show QR Code`.
+- Use the system tray icon to hide or restore the window and access settings quickly.
 
 ## Configuration
 
-- Supports multi-node management; configuration files are compatible with OverTLS standard.
-- Tun2proxy proxy, DNS strategy, logging, and other options can be adjusted in the settings dialog.
-- Supports import/export of node configurations for backup and migration.
+- App settings are persisted as JSON in the user configuration path.
+- Stored values include window geometry, node list, subscription URLs, refresh interval, and auto-refresh state.
+- Subscription refresh results are merged into the node list and saved automatically.
 
-## Screenshots
+## Development Notes
 
-![Main Window](screenshots/main_window.png)
-![Details](screenshots/details.png)
-![Settings](screenshots/settings.png)
+- Uses `wxDragon` for the GUI frontend.
+- Uses `reqwest` for fetching subscription feeds.
+- Uses `tun2proxy` support for proxy tunnel integration.
+- Uses `serde`/`serde_json` for configuration serialization.
+- Background subscription refresh is performed in a worker thread and dispatched back to the main UI thread.
 
 ## License
 
-- License: MIT
+- MIT
 
 ---
 
-For more detailed usage, configuration formats, or FAQs, please refer to the source code comments or submit an issue.
+For more details, inspect the source code and module comments or open an issue in the repository.
