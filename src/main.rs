@@ -644,15 +644,15 @@ fn main() -> std::io::Result<()> {
                     }
 
                     // Pre-format text in the background thread; Strings are Send
-                    let appended = {
-                        let mut lines = String::new();
-                        for (level, module, msg) in batch.into_iter() {
+                    let log_lines: Vec<(log::Level, String)> = batch
+                        .into_iter()
+                        .map(|(level, module, msg)| {
                             // Example: "[2025-06-01T12:34:56Z INFO module] message\n"
                             let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-                            lines.push_str(&format!("[{ts} {:<5} {}] {}\n", level, module, msg));
-                        }
-                        lines
-                    };
+                            let line = format!("[{ts} {:<5} {}] {}\n", level, module, msg);
+                            (level, line)
+                        })
+                        .collect();
 
                     // Apply text update on the UI thread using a ring buffer (stable trimming)
                     // Respect user's auto-scroll preference from settings
@@ -664,7 +664,7 @@ fn main() -> std::io::Result<()> {
                             .and_then(|c| c.logging.clone())
                             .and_then(|ls| ls.log_auto_scroll)
                             .unwrap_or_default();
-                        logview::ui_append_logs(appended, MAX_LOG_LINES, auto_scroll);
+                        logview::ui_append_logs(log_lines, MAX_LOG_LINES, auto_scroll);
                     }));
                 }
             });

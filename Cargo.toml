@@ -37,7 +37,7 @@ reqwest = { version = "0.13.4", default-features = false, features = [
 run-as = { version = "1.2.5", default-features = false }
 rxing = "0.9.1"
 screen-shot = { version = "0.0.8" }
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.150"
 strum = { version = "0.28.0", features = ["derive"] }
 tokio = { version = "1.53.0", features = ["full"] }
@@ -49,6 +49,7 @@ url = { version = "2.5.8", default-features = false, features = [
 uuid = { version = "1.24.0", features = ["v4"] }
 wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163", features = [
     "aui",
+    "stc",
 ] }
 
 [build-dependencies]
