@@ -21,6 +21,7 @@ pub enum MenuId {
     EditSubscription = 3502,
     DeleteSubscription = 3503,
     RefreshSubscriptions = 3504,
+    AutoRefreshSubscriptions = 3505,
     About = 4001,
 }
 
@@ -43,6 +44,7 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::EditSubscription as i32 => Ok(MenuId::EditSubscription),
             x if x == MenuId::DeleteSubscription as i32 => Ok(MenuId::DeleteSubscription),
             x if x == MenuId::RefreshSubscriptions as i32 => Ok(MenuId::RefreshSubscriptions),
+            x if x == MenuId::AutoRefreshSubscriptions as i32 => Ok(MenuId::AutoRefreshSubscriptions),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
@@ -86,7 +88,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use subscription_refresh::{is_refresh_in_progress, refresh_subscriptions};
+use subscription_refresh::{apply_refresh_result, is_refresh_in_progress, refresh_subscriptions};
 use wxdragon::prelude::*;
 
 // Toolbar tool IDs (distinct from menu IDs)
@@ -145,6 +147,8 @@ fn main() -> std::io::Result<()> {
         let nodes = nodes.unwrap_or_default().into_iter().map(|n| Rc::new(RefCell::new(n))).collect();
         let data = Rc::new(RefCell::new(ServerList { nodes }));
         let model = create_server_tree_model(data);
+        let (refresh_request_tx, refresh_request_rx) = std::sync::mpsc::channel::<bool>();
+        let (refresh_result_tx, refresh_result_rx) = std::sync::mpsc::channel();
 
         let win_cfg = cfg_clone.lock().unwrap().window.as_ref().cloned().unwrap_or_default();
 
@@ -190,6 +194,10 @@ fn main() -> std::io::Result<()> {
 
         let status_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
         let status_bar_clone = status_bar;
+        let cfg_for_refresh_ui = cfg_clone.clone();
+        let model_for_refresh_ui = model.clone();
+        let frame_for_refresh_ui = frame;
+        let refresh_result_tx_for_ui = refresh_result_tx.clone();
         let status_timer = Timer::new(&frame);
         status_timer.on_tick(move |_evt| {
             if core::is_overtls_running()
@@ -204,6 +212,13 @@ fn main() -> std::io::Result<()> {
                 status_bar_clone.set_status_text("Ready", 0);
             }
             status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 1);
+
+            while let Ok(show_dialog) = refresh_request_rx.try_recv() {
+                refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
+            }
+            while let Ok(result) = refresh_result_rx.try_recv() {
+                apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
+            }
         });
         status_timer.start(500, false);
         *status_timer_holder.borrow_mut() = Some(status_timer);
@@ -348,6 +363,7 @@ fn main() -> std::io::Result<()> {
             .build();
 
         let refresh_info = "Refresh all subscription URLs in the background";
+        let auto_info = "Toggle automatic subscription refresh";
         // Subscriptions menu
         let subscriptions_menu = Menu::builder()
             .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
@@ -355,6 +371,8 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
             .append_separator()
             .append_item(MenuId::RefreshSubscriptions.into(), "Refresh all subscriptions", refresh_info)
+            .append_separator()
+            .append_check_item(MenuId::AutoRefreshSubscriptions.into(), "Refresh automatically", auto_info)
             .build();
 
         // Help menu
@@ -372,8 +390,40 @@ fn main() -> std::io::Result<()> {
 
         // ensure the menu items have the correct checked state at startup as well
         if let Some(mbar) = frame.get_menu_bar() {
-            sync_menu(&mbar);
+            sync_menu(&mbar, &cfg_clone);
         }
+
+        let cfg_for_auto_refresh = cfg_clone.clone();
+        let refresh_request_tx_for_auto = refresh_request_tx.clone();
+        std::thread::spawn(move || {
+            let mut next_refresh = None;
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+
+                let (enabled, interval) = {
+                    let cfg = cfg_for_auto_refresh.lock().unwrap();
+                    (
+                        cfg.subscription_auto_refresh.unwrap_or(false),
+                        std::time::Duration::from_secs(cfg.subscription_refresh_interval_minutes.unwrap_or(10).max(1) * 60),
+                    )
+                };
+
+                if !enabled {
+                    next_refresh = None;
+                    continue;
+                }
+
+                let deadline = next_refresh.get_or_insert_with(|| std::time::Instant::now() + interval);
+                if std::time::Instant::now() < *deadline {
+                    continue;
+                }
+
+                *deadline = std::time::Instant::now() + interval;
+                if refresh_request_tx_for_auto.send(false).is_err() {
+                    break;
+                }
+            }
+        });
 
         let subscriptions_list_handle: Rc<RefCell<Option<DataViewListCtrl>>> = Rc::new(RefCell::new(None));
         let selected_subscription_row: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
@@ -384,6 +434,7 @@ fn main() -> std::io::Result<()> {
         let frame_for_menu_open = frame;
         let notebook_for_menu_open = notebook_ref.clone();
         let subscriptions_list_handle_for_open = subscriptions_list_handle.clone();
+        let cfg_on_menu_opened = cfg_clone.clone();
         frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
             // Only handle the menubar case here; popup menus use a different path
             if event.is_popup() {
@@ -419,7 +470,7 @@ fn main() -> std::io::Result<()> {
                 let _ = mbar.enable_item(MenuId::RefreshSubscriptions.into(), !is_refresh_in_progress());
 
                 // also update the checked state of our three toggle actions
-                sync_menu(&mbar);
+                sync_menu(&mbar, &cfg_on_menu_opened);
             }
         });
 
@@ -428,6 +479,7 @@ fn main() -> std::io::Result<()> {
         let notebook_for_menu = notebook_ref.clone();
         let subscriptions_list_handle_for_menu = subscriptions_list_handle.clone();
         let selected_subscription_row_for_menu = selected_subscription_row.clone();
+        let refresh_request_tx_for_menu = refresh_request_tx.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
             // special handling for the three toggle tools
@@ -469,7 +521,17 @@ fn main() -> std::io::Result<()> {
                     prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
                 }
             } else if id == MenuId::RefreshSubscriptions as i32 {
-                refresh_subscriptions(&frame, &cfg_for_menu, &model_for_menu);
+                let _ = refresh_request_tx_for_menu.send(true);
+            } else if id == MenuId::AutoRefreshSubscriptions as i32 {
+                let enabled = !cfg_for_menu.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
+                {
+                    let mut cfg_lock = cfg_for_menu.lock().unwrap();
+                    cfg_lock.subscription_auto_refresh = Some(enabled);
+                    settings::save_settings(&cfg_lock);
+                }
+                if let Some(mbar) = frame.get_menu_bar() {
+                    mbar.check_item(MenuId::AutoRefreshSubscriptions.into(), enabled);
+                }
             } else if id == MenuId::Delete as i32 {
                 if let Some(notebook) = *notebook_for_menu.borrow()
                     && notebook.selection() == 1
@@ -489,7 +551,7 @@ fn main() -> std::io::Result<()> {
             }
             // and keep the menubar entries checked appropriately as well
             if let Some(mbar) = frame.get_menu_bar() {
-                sync_menu(&mbar);
+                sync_menu(&mbar, &cfg_for_menu);
             }
         });
 
@@ -696,7 +758,7 @@ fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
 }
 
 // helper to update the checked state of the same three actions on the main menu
-fn sync_menu(mb: &wxdragon::menus::MenuBar) {
+fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mutex<settings::Config>>) {
     if !run_as::is_elevated() {
         // If not elevated, ensure the Tun2Proxy menu item is disabled
         mb.enable_item(MenuId::Tun2proxy.into(), false);
@@ -704,6 +766,9 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar) {
 
     mb.check_item(MenuId::OverTls.into(), core::is_overtls_running());
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
+
+    let enable_auto_refresh = cfg.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
+    mb.check_item(MenuId::AutoRefreshSubscriptions.into(), enable_auto_refresh);
 }
 
 fn restore_main_window(frame: &Frame) {

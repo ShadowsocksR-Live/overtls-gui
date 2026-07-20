@@ -109,26 +109,37 @@ fn append_nodes_to_model(model: &CustomDataViewTreeModel, cfg: &ConfigRef, nodes
 
 static REFRESH_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+pub struct RefreshResult {
+    pub nodes: Vec<ServerNode>,
+    pub show_dialog: bool,
+}
+
+impl RefreshResult {
+    pub fn new(nodes: Vec<ServerNode>, show_dialog: bool) -> Self {
+        Self { nodes, show_dialog }
+    }
+}
+
 pub fn is_refresh_in_progress() -> bool {
     REFRESH_IN_PROGRESS.load(Ordering::SeqCst)
 }
 
-pub fn refresh_subscriptions(parent: &Frame, cfg: &ConfigRef, model: &CustomDataViewTreeModel) {
-    if is_refresh_in_progress() {
+pub fn refresh_subscriptions(cfg: &ConfigRef, sender: std::sync::mpsc::Sender<RefreshResult>, show_dialog: bool) {
+    if REFRESH_IN_PROGRESS
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
         log::warn!("Subscription refresh already in progress; ignoring request.");
         return;
     }
     let subscriptions = cfg.lock().unwrap().get_subscriptions();
     if subscriptions.is_empty() {
         log::info!("No subscriptions to refresh.");
+        REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
         return;
     }
 
-    let parent_addr: usize = parent as *const Frame as usize;
-    let model_addr: usize = model as *const CustomDataViewTreeModel as usize;
-    let cfg_clone = cfg.clone();
     std::thread::spawn(move || {
-        REFRESH_IN_PROGRESS.store(true, Ordering::SeqCst);
         let running_node = core::get_running_overtls_node();
         let client = build_subscription_client(running_node.as_ref());
         let mut fetched_nodes = Vec::new();
@@ -174,21 +185,25 @@ pub fn refresh_subscriptions(parent: &Frame, cfg: &ConfigRef, model: &CustomData
             }
         }
 
-        wxdragon::call_after(Box::new(move || {
-            let parent_ref = unsafe { &*(parent_addr as *const Frame) };
-            let model_ref = unsafe { &*(model_addr as *const CustomDataViewTreeModel) };
-            let added = append_nodes_to_model(model_ref, &cfg_clone, fetched_nodes);
-            let msg = if added > 0 {
-                format!("Successfully added {added} new node(s) from subscriptions.")
-            } else {
-                "No new nodes were added from subscriptions.".into()
-            };
-            let dlg = MessageDialog::builder(parent_ref, &msg, "Refresh Complete")
-                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-                .build();
-            let _ = dlg.show_modal();
-            dlg.destroy();
+        if sender.send(RefreshResult::new(fetched_nodes, show_dialog)).is_err() {
             REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
-        }));
+        }
     });
+}
+
+pub fn apply_refresh_result(parent: &Frame, cfg: &ConfigRef, model: &CustomDataViewTreeModel, result: RefreshResult) {
+    let added = append_nodes_to_model(model, cfg, result.nodes);
+    if result.show_dialog {
+        let msg = if added > 0 {
+            format!("Successfully added {added} new node(s) from subscriptions.")
+        } else {
+            "No new nodes were added from subscriptions.".into()
+        };
+        let dlg = MessageDialog::builder(parent, &msg, "Refresh Complete")
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+            .build();
+        let _ = dlg.show_modal();
+        dlg.destroy();
+    }
+    REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
 }
