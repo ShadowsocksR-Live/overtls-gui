@@ -82,8 +82,9 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         let mut cfg_lock = cfg.lock().unwrap();
 
         // Common
-        let run_as_admin_checked = common_read();
+        let (run_as_admin_checked, refresh_interval_minutes) = common_read();
         cfg_lock.run_as_admin = if run_as_admin_checked { Some(true) } else { None };
+        cfg_lock.subscription_refresh_interval_minutes = Some(refresh_interval_minutes);
 
         // OverTLS
         let new_overtls: OverTlsSettings = overtls_read();
@@ -255,15 +256,15 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
     (panel, reader)
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> bool + 'static) {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> (bool, u64) + 'static) {
     let panel = Panel::builder(parent).build();
 
-    // Simple layout: one checkbox for 'Run as administrator'
-    let label_size = Size::new(150, -1);
+    // Common settings: run as admin and subscription refresh interval
+    let label_size = Size::new(260, -1);
     let spacer_label = StaticText::builder(&panel)
         .with_label("    ")
         .with_style(StaticTextStyle::AlignRight)
-        .with_size(label_size)
+        .with_size(Size::new(150, -1))
         .build();
 
     let run_admin_checkbox = CheckBox::builder(&panel)
@@ -271,16 +272,32 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel,
         .with_value(cfg.lock().unwrap().run_as_admin.unwrap_or(false))
         .build();
 
-    let grid = FlexGridSizer::builder(1, 2).with_vgap(10).with_hgap(16).build();
+    let refresh_interval_label = StaticText::builder(&panel)
+        .with_label("Interval for automatically\nrefreshing subscriptions (minutes)")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+
+    let refresh_interval_input = SpinCtrl::builder(&panel)
+        .with_initial_value(cfg.lock().unwrap().subscription_refresh_interval_minutes.unwrap_or(10) as i32)
+        .with_min_value(1)
+        .with_max_value(1440)
+        .with_size(Size::new(160, -1))
+        .build();
+
+    let grid = FlexGridSizer::builder(2, 2).with_vgap(10).with_hgap(16).build();
     grid.add(&spacer_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&run_admin_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
+    let flag = SizerFlag::AlignRight | SizerFlag::AlignCenterVertical;
+    grid.add(&refresh_interval_label, 0, flag, 0);
+    grid.add(&refresh_interval_input, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    // Reader returns whether Run as administrator is checked
-    let reader = { move || run_admin_checkbox.get_value() };
+    // Reader returns whether Run as administrator is checked and the subscription refresh interval
+    let reader = { move || (run_admin_checkbox.get_value(), refresh_interval_input.value() as u64) };
 
     (panel, reader)
 }

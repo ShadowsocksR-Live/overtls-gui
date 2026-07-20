@@ -33,6 +33,9 @@ pub struct Config {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscriptions: Option<Vec<url::Url>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_refresh_interval_minutes: Option<u64>,
 }
 
 pub(crate) type ConfigRef = std::sync::Arc<std::sync::Mutex<Config>>;
