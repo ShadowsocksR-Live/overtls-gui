@@ -41,19 +41,19 @@ impl LogViewPanel {
         ctrl.style_set_background(STYLE_DEFAULT, colours::WHITE);
         ctrl.style_set_size(STYLE_DEFAULT, 10);
 
-        ctrl.style_set_foreground(STYLE_ERROR, Colour::rgb(224, 35, 35));
+        ctrl.style_set_foreground(STYLE_ERROR, Colour::rgb(255, 0, 0));
         ctrl.style_set_background(STYLE_ERROR, colours::WHITE);
         ctrl.style_set_size(STYLE_ERROR, 10);
 
-        ctrl.style_set_foreground(STYLE_WARN, Colour::rgb(224, 112, 24));
+        ctrl.style_set_foreground(STYLE_WARN, Colour::rgb(150, 150, 20));
         ctrl.style_set_background(STYLE_WARN, colours::WHITE);
         ctrl.style_set_size(STYLE_WARN, 10);
 
-        ctrl.style_set_foreground(STYLE_INFO, Colour::rgb(0, 200, 102));
+        ctrl.style_set_foreground(STYLE_INFO, Colour::rgb(50, 150, 100));
         ctrl.style_set_background(STYLE_INFO, colours::WHITE);
         ctrl.style_set_size(STYLE_INFO, 10);
 
-        ctrl.style_set_foreground(STYLE_DEBUG, Colour::rgb(26, 115, 232));
+        ctrl.style_set_foreground(STYLE_DEBUG, Colour::rgb(10, 80, 150));
         ctrl.style_set_background(STYLE_DEBUG, colours::WHITE);
         ctrl.style_set_size(STYLE_DEBUG, 10);
 
