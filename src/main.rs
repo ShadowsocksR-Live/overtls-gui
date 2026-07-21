@@ -397,7 +397,7 @@ fn main() -> std::io::Result<()> {
         }
 
         let proxy_safety_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
-        let proxy_safety_toolbar = toolbar_opt.clone();
+        let proxy_safety_toolbar = toolbar_opt;
         let proxy_safety_cfg = cfg_clone.clone();
         let shutting_down_for_proxy = shutting_down_for_ui.clone();
         let proxy_safety_timer = Timer::new(&frame);
