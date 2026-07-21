@@ -168,6 +168,65 @@ pub fn get_running_overtls_node() -> Option<overtls::Config> {
     OVERTLS_RUNNING_NODE.lock().unwrap().clone()
 }
 
+pub fn disable_system_proxy_if_overtls_stopped() {
+    if is_overtls_running() {
+        return;
+    }
+
+    if let Err(e) = systemproxy::SystemProxy::stop() {
+        log::error!("Failed to disable the system proxy after OverTLS stopped: {e}");
+    } else {
+        log::info!("System proxy disabled because OverTLS is not running.");
+    }
+}
+
+pub fn toggle_system_proxy(parent: &dyn WxWidget) {
+    if !is_overtls_running() {
+        disable_system_proxy_if_overtls_stopped();
+        show_proxy_error(parent, "Start OverTLS before using the system proxy.".to_string());
+        return;
+    }
+
+    if systemproxy::SystemProxy::is_enabled() {
+        if let Err(e) = systemproxy::SystemProxy::stop() {
+            show_proxy_error(parent, format!("Failed to disable the system proxy: {e}"));
+        } else {
+            log::info!("System proxy disabled.");
+        }
+        return;
+    }
+
+    let Some(node) = get_running_overtls_node() else {
+        show_proxy_error(parent, "Start OverTLS before enabling the system proxy.".to_string());
+        return;
+    };
+    let Some(client) = node.client else {
+        show_proxy_error(parent, "The running OverTLS node has no client listen address.".to_string());
+        return;
+    };
+
+    let proxy = systemproxy::SystemProxy {
+        enable: true,
+        host: normalize_connect_host(&client.listen_host).to_string(),
+        port: client.listen_port,
+        bypass: String::new(),
+    };
+    if let Err(e) = proxy.set_system_proxy() {
+        show_proxy_error(parent, format!("Failed to enable the system proxy: {e}"));
+    } else {
+        log::info!("System proxy enabled at {}:{}.", proxy.host, proxy.port);
+    }
+}
+
+fn show_proxy_error(parent: &dyn WxWidget, message: String) {
+    log::error!("{message}");
+    let dlg = MessageDialog::builder(parent, &message, "System Proxy")
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+        .build();
+    let _ = dlg.show_modal();
+    dlg.destroy();
+}
+
 #[inline]
 pub fn stop_overtls_only() -> std::io::Result<()> {
     stop_thread_with_cancel_token(&OVERTLS_TOKEN, &OVERTLS_HANDLE)

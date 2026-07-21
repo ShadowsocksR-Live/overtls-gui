@@ -9,8 +9,9 @@ pub enum MenuId {
     New = 1004,
     OverTls = 1005,
     Tun2proxy = 1006,
-    Open = 1007,
-    Quit = 1008,
+    SystemProxy = 1007,
+    Open = 1008,
+    Quit = 1009,
     ViewDetails = 3001,
     ExportNode = 3002,
     ShowQrCode = 3003,
@@ -47,6 +48,7 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::AutoRefreshSubscriptions as i32 => Ok(MenuId::AutoRefreshSubscriptions),
             x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
+            x if x == MenuId::SystemProxy as i32 => Ok(MenuId::SystemProxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
             x if x == MenuId::Quit as i32 => Ok(MenuId::Quit),
             x if x == MenuId::ViewDetails as i32 => Ok(MenuId::ViewDetails),
@@ -81,7 +83,7 @@ mod single_instance;
 
 use model::{ServerList, create_server_tree_model};
 pub(crate) use overtls::Config as ServerNode;
-use settings::{ConfigRef, MAIN_ICON, WindowConfig, create_bitmap_from_memory};
+use settings::{ConfigRef, MAIN_ICON, OVERTLS_ICON, PROXY_ICON, SETTINGS_ICON, TUN2PROXY_ICON, WindowConfig, create_bitmap_from_memory};
 use std::{
     cell::RefCell,
     net::SocketAddr,
@@ -94,6 +96,7 @@ use wxdragon::prelude::*;
 // Toolbar tool IDs (distinct from menu IDs)
 const ID_TOOL_OVERTLS: Id = MenuId::OverTls as Id; // can reuse menu ID since it's the same action
 const ID_TOOL_TUN2PROXY: Id = MenuId::Tun2proxy as Id; // can reuse menu ID since it's the same action
+const ID_TOOL_SYSTEM_PROXY: Id = MenuId::SystemProxy as Id;
 const ID_TOOL_SETTINGS: Id = MenuId::Settings as Id; // simple button to open settings
 
 fn main() -> std::io::Result<()> {
@@ -231,13 +234,7 @@ fn main() -> std::io::Result<()> {
         if let Some(toolbar) = &toolbar_opt {
             let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
 
-            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::HelpSettings, ArtClient::Toolbar, None) {
-                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
-                    toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &bmp, "Open Settings");
-                }
-            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::HelpSettings, ArtClient::Toolbar, None) {
-                toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &icon, "Open Settings");
-            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            if let Ok(bmp) = create_bitmap_from_memory(SETTINGS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
                 toolbar.add_tool(ID_TOOL_SETTINGS, "Settings", &bmp, "Open Settings");
             }
 
@@ -250,25 +247,17 @@ fn main() -> std::io::Result<()> {
             sep.set_foreground_color(colours::gray::GRAY_600);
             toolbar.add_control(&sep);
 
-            // OverTLS tool (toggle)
-            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::New, ArtClient::Toolbar, None) {
-                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
-                    toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
-                }
-            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::New, ArtClient::Toolbar, None) {
-                toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &icon, "Start OverTLS (SOCKS5)");
-            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            // OverTLS tool (toggle) OVERTLS_ICON
+            if let Ok(bmp) = create_bitmap_from_memory(OVERTLS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
                 toolbar.add_check_tool(ID_TOOL_OVERTLS, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
             }
 
+            if let Ok(bmp) = create_bitmap_from_memory(PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+                toolbar.add_check_tool(ID_TOOL_SYSTEM_PROXY, "System Proxy", &bmp, "Use OverTLS as the system proxy");
+            }
+
             // Tun2Proxy tool (toggle)
-            if let Some(bundle) = ArtProvider::get_bitmap_bundle(ArtId::FileOpen, ArtClient::Toolbar, None) {
-                if let Some(bmp) = bundle.get_bitmap_for(&frame) {
-                    toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
-                }
-            } else if let Some(icon) = ArtProvider::get_bitmap(ArtId::FileOpen, ArtClient::Toolbar, None) {
-                toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &icon, "Start Tun2Proxy");
-            } else if let Ok(bmp) = create_bitmap_from_memory(MAIN_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            if let Ok(bmp) = create_bitmap_from_memory(TUN2PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
                 toolbar.add_check_tool(ID_TOOL_TUN2PROXY, "Tun2Proxy", &bmp, "Start Tun2Proxy");
             }
 
@@ -345,6 +334,7 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
             .append_check_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
+            .append_check_item(MenuId::SystemProxy.into(), "System Proxy", "Use OverTLS as the system proxy")
             .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
             .append_separator()
             .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
@@ -392,6 +382,21 @@ fn main() -> std::io::Result<()> {
         if let Some(mbar) = frame.get_menu_bar() {
             sync_menu(&mbar, &cfg_clone);
         }
+
+        let proxy_safety_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+        let proxy_safety_toolbar = toolbar_opt.clone();
+        let proxy_safety_cfg = cfg_clone.clone();
+        let proxy_safety_timer = Timer::new(&frame);
+        proxy_safety_timer.on_tick(move |_evt| {
+            if let Some(toolbar) = &proxy_safety_toolbar {
+                sync_toolbar(toolbar);
+            }
+            if let Some(mbar) = frame.get_menu_bar() {
+                sync_menu(&mbar, &proxy_safety_cfg);
+            }
+        });
+        proxy_safety_timer.start(500, false);
+        *proxy_safety_timer_holder.borrow_mut() = Some(proxy_safety_timer);
 
         let cfg_for_auto_refresh = cfg_clone.clone();
         let refresh_request_tx_for_auto = refresh_request_tx.clone();
@@ -749,12 +754,27 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 // helper to update all three toggle buttons according to actual running state
 fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     let running = core::is_overtls_running();
+    if !running {
+        core::disable_system_proxy_if_overtls_stopped();
+    }
     tb.toggle_tool(ID_TOOL_OVERTLS, running);
     tb.set_tool_short_help(ID_TOOL_OVERTLS, if running { "Stop OverTLS" } else { "Start OverTLS (SOCKS5)" });
 
     let t2p = core::is_tun2proxy_running();
     tb.toggle_tool(ID_TOOL_TUN2PROXY, t2p);
     tb.set_tool_short_help(ID_TOOL_TUN2PROXY, if t2p { "Stop Tun2Proxy" } else { "Start Tun2Proxy" });
+
+    let system_proxy = running && systemproxy::SystemProxy::is_enabled();
+    tb.enable_tool(ID_TOOL_SYSTEM_PROXY, running);
+    tb.toggle_tool(ID_TOOL_SYSTEM_PROXY, system_proxy);
+    tb.set_tool_short_help(
+        ID_TOOL_SYSTEM_PROXY,
+        if system_proxy {
+            "Disable System Proxy"
+        } else {
+            "Use OverTLS as the system proxy"
+        },
+    );
 }
 
 // helper to update the checked state of the same three actions on the main menu
@@ -764,8 +784,16 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mute
         mb.enable_item(MenuId::Tun2proxy.into(), false);
     }
 
-    mb.check_item(MenuId::OverTls.into(), core::is_overtls_running());
+    let overtls_running = core::is_overtls_running();
+    if !overtls_running {
+        core::disable_system_proxy_if_overtls_stopped();
+    }
+
+    mb.check_item(MenuId::OverTls.into(), overtls_running);
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
+    let system_proxy = overtls_running && systemproxy::SystemProxy::is_enabled();
+    mb.enable_item(MenuId::SystemProxy.into(), overtls_running);
+    mb.check_item(MenuId::SystemProxy.into(), system_proxy);
 
     let enable_auto_refresh = cfg.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
     mb.check_item(MenuId::AutoRefreshSubscriptions.into(), enable_auto_refresh);

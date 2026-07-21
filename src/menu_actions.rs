@@ -264,6 +264,11 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             log::info!("Menu/Toolbar: Tun2proxy clicked!");
         }
 
+        MenuId::SystemProxy => {
+            log::info!("Menu/Toolbar: System Proxy clicked!");
+            crate::core::toggle_system_proxy(parent);
+        }
+
         _ => {
             log::warn!("Unhandled Menu ID: {menu_id:?}");
         }

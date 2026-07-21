@@ -46,6 +46,10 @@ pub(crate) type ConfigRef = std::sync::Arc<std::sync::Mutex<Config>>;
 pub(crate) const WIDGET_MARGIN: i32 = 2;
 pub(crate) const APP_TITLE: &str = "OverTLS-GUI";
 pub(crate) const MAIN_ICON: &[u8] = include_bytes!("../assets/main.png");
+pub(crate) const SETTINGS_ICON: &[u8] = include_bytes!("../assets/settings.png");
+pub(crate) const OVERTLS_ICON: &[u8] = include_bytes!("../assets/overtls.png");
+pub(crate) const PROXY_ICON: &[u8] = include_bytes!("../assets/proxy.png");
+pub(crate) const TUN2PROXY_ICON: &[u8] = include_bytes!("../assets/tun2proxy.png");
 pub(crate) const ICON_SIZE: u32 = 72;
 
 static DIRTY_FLAG: AtomicBool = AtomicBool::new(false);
