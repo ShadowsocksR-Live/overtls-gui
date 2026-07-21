@@ -88,7 +88,10 @@ use std::{
     cell::RefCell,
     net::SocketAddr,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use subscription_refresh::{apply_refresh_result, is_refresh_in_progress, refresh_subscriptions};
 use wxdragon::prelude::*;
@@ -127,6 +130,7 @@ fn main() -> std::io::Result<()> {
 
     let log_queue = std::sync::Arc::new(Mutex::new(Vec::new()));
     let log_queue_thread = log_queue.clone();
+    let shutting_down = Arc::new(AtomicBool::new(false));
     std::thread::spawn(move || {
         for msg in logging_rx {
             log_queue_thread.lock().unwrap().push(msg);
@@ -134,6 +138,7 @@ fn main() -> std::io::Result<()> {
     });
 
     let cfg_clone = cfg.clone();
+    let shutting_down_for_ui = shutting_down.clone();
 
     // holder for the activation timer.  storing it in an `Arc` outside the
     // closure ensures the timer lives for the lifetime of the application
@@ -172,7 +177,11 @@ fn main() -> std::io::Result<()> {
 
             // timer on the UI thread polls the receiver and raises the window
             let timer = Timer::new(&frame);
+            let shutting_down_for_activation = shutting_down_for_ui.clone();
             timer.on_tick(move |_evt| {
+                if shutting_down_for_activation.load(Ordering::Acquire) {
+                    return;
+                }
                 if act_rx.try_recv().is_ok() {
                     restore_main_window(&frame);
                 }
@@ -201,8 +210,12 @@ fn main() -> std::io::Result<()> {
         let model_for_refresh_ui = model.clone();
         let frame_for_refresh_ui = frame;
         let refresh_result_tx_for_ui = refresh_result_tx.clone();
+        let shutting_down_for_status = shutting_down_for_ui.clone();
         let status_timer = Timer::new(&frame);
         status_timer.on_tick(move |_evt| {
+            if shutting_down_for_status.load(Ordering::Acquire) {
+                return;
+            }
             if core::is_overtls_running()
                 && let Some(overtls_cfg) = core::get_running_overtls_node()
                 && let Some(client) = overtls_cfg.client.as_ref()
@@ -386,8 +399,12 @@ fn main() -> std::io::Result<()> {
         let proxy_safety_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
         let proxy_safety_toolbar = toolbar_opt.clone();
         let proxy_safety_cfg = cfg_clone.clone();
+        let shutting_down_for_proxy = shutting_down_for_ui.clone();
         let proxy_safety_timer = Timer::new(&frame);
         proxy_safety_timer.on_tick(move |_evt| {
+            if shutting_down_for_proxy.load(Ordering::Acquire) {
+                return;
+            }
             if let Some(toolbar) = &proxy_safety_toolbar {
                 sync_toolbar(toolbar);
             }
@@ -487,6 +504,11 @@ fn main() -> std::io::Result<()> {
         let refresh_request_tx_for_menu = refresh_request_tx.clone();
         frame.on_menu(move |event| {
             let id = event.get_id();
+            if id == MenuId::Quit as i32 {
+                frame.close(true);
+                return;
+            }
+
             // special handling for the three toggle tools
             if id == ID_TOOL_OVERTLS {
                 // UI-level behavior: when no node is selected, switch to the Nodes page.
@@ -562,6 +584,7 @@ fn main() -> std::io::Result<()> {
 
         // clone config for use in close/destroy handlers
         let cfg_for_close = cfg_clone.clone();
+        let shutting_down_for_close = shutting_down_for_ui.clone();
 
         frame.on_close(move |evt| {
             if let wxdragon::WindowEventData::General(event) = &evt {
@@ -577,6 +600,12 @@ fn main() -> std::io::Result<()> {
                     log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
                 }
 
+                if !event.can_veto() {
+                    shutting_down_for_close.store(true, Ordering::Release);
+                    systemproxy::SystemProxy::stop().ok();
+                    let _ = core::stop_all_services();
+                }
+
                 if event.can_veto() {
                     // If the close event is the window's default behavior (not from the taskbar menu or main menu)
                     // we veto the close and hide the window instead
@@ -589,8 +618,9 @@ fn main() -> std::io::Result<()> {
 
         let model_for_destroy = model.clone();
         let cfg_for_destroy = cfg_clone.clone();
+        let shutting_down_for_destroy = shutting_down_for_ui.clone();
         frame.on_destroy(move |_data| {
-            core::stop_all_services().ok(); // best effort to stop any running services before exit
+            shutting_down_for_destroy.store(true, Ordering::Release);
 
             // Persist current servers from the model back to settings
             if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
@@ -669,8 +699,12 @@ fn main() -> std::io::Result<()> {
         // Auto-save dirty config every second
         let cfg_for_autosave = cfg_clone.clone();
         let model_for_autosave = model.clone();
+        let shutting_down_for_autosave = shutting_down_for_ui.clone();
         let autosave_timer = Timer::new(&frame);
         autosave_timer.on_tick(move |_evt| {
+            if shutting_down_for_autosave.load(Ordering::Acquire) {
+                return;
+            }
             if settings::is_dirty()
                 && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
                     list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
@@ -691,12 +725,17 @@ fn main() -> std::io::Result<()> {
         // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
         {
             let ui_log_queue = log_queue.clone();
+            let shutting_down_for_logs = shutting_down_for_ui.clone();
             std::thread::spawn(move || {
                 // Throttle updates a bit to avoid overwhelming the UI
                 const SLEEP_MS: u64 = 120;
                 const MAX_LOG_LINES: usize = 1000;
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(SLEEP_MS));
+
+                    if shutting_down_for_logs.load(Ordering::Acquire) {
+                        break;
+                    }
 
                     // Drain any pending log tuples into a local batch
                     let mut batch: Vec<(log::Level, String, String)> = Vec::new();
@@ -724,7 +763,11 @@ fn main() -> std::io::Result<()> {
                     // Apply text update on the UI thread using a ring buffer (stable trimming)
                     // Respect user's auto-scroll preference from settings
                     let cfg_for_autoscroll = cfg_clone.clone();
+                    let shutting_down_for_callback = shutting_down_for_logs.clone();
                     wxdragon::call_after(Box::new(move || {
+                        if shutting_down_for_callback.load(Ordering::Acquire) {
+                            return;
+                        }
                         let auto_scroll = cfg_for_autoscroll
                             .lock()
                             .ok()
