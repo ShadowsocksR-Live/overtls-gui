@@ -40,7 +40,7 @@ screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.150"
 strum = { version = "0.28.0", features = ["derive"] }
-systemproxy = { version = "0.3.3", default-features = false, features = [
+systemproxy = { version = "0.3.4", default-features = false, features = [
     "iptools",
 ] }
 tokio = { version = "1.53.0", features = ["full"] }

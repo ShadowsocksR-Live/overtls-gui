@@ -175,8 +175,6 @@ pub fn disable_system_proxy_if_overtls_stopped() {
 
     if let Err(e) = systemproxy::SystemProxy::stop() {
         log::error!("Failed to disable the system proxy after OverTLS stopped: {e}");
-    } else {
-        log::info!("System proxy disabled because OverTLS is not running.");
     }
 }
 
@@ -209,7 +207,7 @@ pub fn toggle_system_proxy(parent: &dyn WxWidget) {
         enable: true,
         host: normalize_connect_host(&client.listen_host).to_string(),
         port: client.listen_port,
-        bypass: String::new(),
+        ..Default::default()
     };
     if let Err(e) = proxy.set_system_proxy() {
         show_proxy_error(parent, format!("Failed to enable the system proxy: {e}"));

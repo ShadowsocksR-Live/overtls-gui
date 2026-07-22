@@ -227,7 +227,9 @@ fn main() -> std::io::Result<()> {
             } else {
                 status_bar_clone.set_status_text("Ready", 0);
             }
-            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 1);
+            let proxy = if systemproxy::SystemProxy::is_enabled() { "ON" } else { "OFF" };
+            status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
+            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
 
             while let Ok(show_dialog) = refresh_request_rx.try_recv() {
                 refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);

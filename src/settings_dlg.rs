@@ -285,7 +285,7 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel,
         .with_size(Size::new(160, -1))
         .build();
 
-    let grid = FlexGridSizer::builder(2, 2).with_vgap(10).with_hgap(16).build();
+    let grid = FlexGridSizer::builder(2, 2).with_vgap(20).with_hgap(16).build();
     grid.add(&spacer_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&run_admin_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
     let flag = SizerFlag::AlignRight | SizerFlag::AlignCenterVertical;
