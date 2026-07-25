@@ -134,13 +134,8 @@ fn main() -> std::io::Result<()> {
     let cfg_clone = cfg.clone();
     let shutting_down_for_ui = shutting_down.clone();
 
-    // holder for the activation timer.  storing it in an `Arc` outside the
-    // closure ensures the timer lives for the lifetime of the application
-    // without needing to `mem::forget` it.
-    let timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
-    let timer_holder_clone = timer_holder.clone();
-    let autosave_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
-    let autosave_timer_holder_clone = autosave_timer_holder.clone();
+    let ui_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+    let ui_timer_holder_clone = ui_timer_holder.clone();
 
     let _ = wxdragon::main(move |_| {
         // Build model once from settings.servers
@@ -162,29 +157,14 @@ fn main() -> std::io::Result<()> {
 
         // if we bound the activation port successfully earlier, start a
         // background thread to accept connections and send a simple signal over
-        // a channel. the UI thread will poll the receiver via a wx timer and
-        // perform the actual raise operation, which avoids moving the `Frame`
-        // across thread boundaries.
-        if let Some(listener) = activation_listener {
-            // spawn helper returns receiver we can poll
-            let act_rx = crate::single_instance::spawn_activation_listener(listener);
-
-            // timer on the UI thread polls the receiver and raises the window
-            let timer = Timer::new(&frame);
-            let shutting_down_for_activation = shutting_down_for_ui.clone();
-            timer.on_tick(move |_evt| {
-                if shutting_down_for_activation.load(Ordering::Acquire) {
-                    return;
-                }
-                if act_rx.try_recv().is_ok() {
-                    restore_main_window(&frame);
-                }
-            });
-            // choose a small interval so activation is responsive but not busy
-            timer.start(150, false);
-            // save timer in outer Rc so it stays alive
-            *timer_holder_clone.borrow_mut() = Some(timer);
-        }
+        // a channel. the UI thread will poll the receiver via the shared UI
+        // timer and perform the actual raise operation, which avoids moving the
+        // `Frame` across thread boundaries.
+        let activation_rx = if let Some(listener) = activation_listener {
+            Some(crate::single_instance::spawn_activation_listener(listener))
+        } else {
+            None
+        };
 
         let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((48, 48))).unwrap();
         frame.set_icon(&icon_bitmap);
@@ -198,42 +178,14 @@ fn main() -> std::io::Result<()> {
             .add_initial_text(2, "Right Field")
             .build();
 
-        let status_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
         let status_bar_clone = status_bar;
         let cfg_for_refresh_ui = cfg_clone.clone();
         let model_for_refresh_ui = model.clone();
+        let cfg_for_autosave = cfg_for_refresh_ui.clone();
+        let model_for_autosave = model_for_refresh_ui.clone();
         let frame_for_refresh_ui = frame;
         let refresh_result_tx_for_ui = refresh_result_tx.clone();
         let shutting_down_for_status = shutting_down_for_ui.clone();
-        let status_timer = Timer::new(&frame);
-        status_timer.on_tick(move |_evt| {
-            if shutting_down_for_status.load(Ordering::Acquire) {
-                return;
-            }
-            if core::is_overtls_running()
-                && let Some(overtls_cfg) = core::get_running_overtls_node()
-                && let Some(client) = overtls_cfg.client.as_ref()
-            {
-                let addr: SocketAddr = format!("{}:{}", client.listen_host, client.listen_port)
-                    .parse()
-                    .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], client.listen_port)));
-                status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
-            } else {
-                status_bar_clone.set_status_text("Ready", 0);
-            }
-            let proxy = if systemproxy::SystemProxy::is_enabled() { "ON" } else { "OFF" };
-            status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
-            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
-
-            while let Ok(show_dialog) = refresh_request_rx.try_recv() {
-                refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
-            }
-            while let Ok(result) = refresh_result_rx.try_recv() {
-                apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
-            }
-        });
-        status_timer.start(500, false);
-        *status_timer_holder.borrow_mut() = Some(status_timer);
 
         // --- ToolBar Setup ---
         // Use flat style to ensure separators are drawn visibly
@@ -392,24 +344,68 @@ fn main() -> std::io::Result<()> {
             sync_menu(&mbar, &cfg_clone);
         }
 
-        let proxy_safety_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
         let proxy_safety_toolbar = toolbar_opt;
         let proxy_safety_cfg = cfg_clone.clone();
-        let shutting_down_for_proxy = shutting_down_for_ui.clone();
-        let proxy_safety_timer = Timer::new(&frame);
-        proxy_safety_timer.on_tick(move |_evt| {
-            if shutting_down_for_proxy.load(Ordering::Acquire) {
+
+        // A shared UI timer handles status refresh, activation polling,
+        // toolbar/menu sync, and autosave checks.
+        let status_timer = Timer::new(&frame);
+        status_timer.on_tick(move |_evt| {
+            if shutting_down_for_status.load(Ordering::Acquire) {
                 return;
             }
+            if let Some(act_rx) = &activation_rx {
+                if act_rx.try_recv().is_ok() {
+                    restore_main_window(&frame_for_refresh_ui);
+                }
+            }
+
+            if core::is_overtls_running()
+                && let Some(overtls_cfg) = core::get_running_overtls_node()
+                && let Some(client) = overtls_cfg.client.as_ref()
+            {
+                let addr: SocketAddr = format!("{}:{}", client.listen_host, client.listen_port)
+                    .parse()
+                    .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], client.listen_port)));
+                status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
+            } else {
+                status_bar_clone.set_status_text("Ready", 0);
+            }
+
+            let proxy = if systemproxy::SystemProxy::is_enabled() { "ON" } else { "OFF" };
+            status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
+            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
+
+            while let Ok(show_dialog) = refresh_request_rx.try_recv() {
+                refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
+            }
+            while let Ok(result) = refresh_result_rx.try_recv() {
+                apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
+            }
+
             if let Some(toolbar) = &proxy_safety_toolbar {
                 sync_toolbar(toolbar);
             }
-            if let Some(mbar) = frame.get_menu_bar() {
+            if let Some(mbar) = frame_for_refresh_ui.get_menu_bar() {
                 sync_menu(&mbar, &proxy_safety_cfg);
             }
+
+            if settings::is_dirty()
+                && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+                    list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+                })
+            {
+                let mut cfg_lock = cfg_for_autosave.lock().unwrap();
+                cfg_lock.servers = Some(servers);
+                if settings::save_settings(&cfg_lock) {
+                    log::debug!("Auto-saved dirty settings.");
+                } else {
+                    log::error!("Auto-save of dirty settings failed.");
+                }
+            }
         });
-        proxy_safety_timer.start(500, false);
-        *proxy_safety_timer_holder.borrow_mut() = Some(proxy_safety_timer);
+        status_timer.start(1000, false);
+        *ui_timer_holder_clone.borrow_mut() = Some(status_timer);
 
         let cfg_for_auto_refresh = cfg_clone.clone();
         let refresh_request_tx_for_auto = refresh_request_tx.clone();
@@ -691,32 +687,6 @@ fn main() -> std::io::Result<()> {
         let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
         main_sizer.add(&main_panel, 1, SizerFlag::Expand | SizerFlag::All, 0);
         frame.set_sizer(main_sizer, true);
-
-        // Auto-save dirty config every second
-        let cfg_for_autosave = cfg_clone.clone();
-        let model_for_autosave = model.clone();
-        let shutting_down_for_autosave = shutting_down_for_ui.clone();
-        let autosave_timer = Timer::new(&frame);
-        autosave_timer.on_tick(move |_evt| {
-            if shutting_down_for_autosave.load(Ordering::Acquire) {
-                return;
-            }
-            if settings::is_dirty()
-                && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
-                    list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
-                })
-            {
-                let mut cfg_lock = cfg_for_autosave.lock().unwrap();
-                cfg_lock.servers = Some(servers);
-                if settings::save_settings(&cfg_lock) {
-                    log::debug!("Auto-saved dirty settings.");
-                } else {
-                    log::error!("Auto-save of dirty settings failed.");
-                }
-            }
-        });
-        autosave_timer.start(1000, false);
-        *autosave_timer_holder_clone.borrow_mut() = Some(autosave_timer);
 
         // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
         {
