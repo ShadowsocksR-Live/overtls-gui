@@ -160,11 +160,7 @@ fn main() -> std::io::Result<()> {
         // a channel. the UI thread will poll the receiver via the shared UI
         // timer and perform the actual raise operation, which avoids moving the
         // `Frame` across thread boundaries.
-        let activation_rx = if let Some(listener) = activation_listener {
-            Some(crate::single_instance::spawn_activation_listener(listener))
-        } else {
-            None
-        };
+        let activation_rx = activation_listener.map(crate::single_instance::spawn_activation_listener);
 
         let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((48, 48))).unwrap();
         frame.set_icon(&icon_bitmap);
@@ -354,10 +350,10 @@ fn main() -> std::io::Result<()> {
             if shutting_down_for_status.load(Ordering::Acquire) {
                 return;
             }
-            if let Some(act_rx) = &activation_rx {
-                if act_rx.try_recv().is_ok() {
-                    restore_main_window(&frame_for_refresh_ui);
-                }
+            if let Some(act_rx) = &activation_rx
+                && act_rx.try_recv().is_ok()
+            {
+                restore_main_window(&frame_for_refresh_ui);
             }
 
             if core::is_overtls_running()
@@ -642,7 +638,13 @@ fn main() -> std::io::Result<()> {
         notebook.add_page(&subscriptions_panel, "Subscriptions", false, None);
 
         // Integrate LogView module (bottom pane)
-        let logview_panel = logview::LogViewPanel::new(&main_panel);
+        let log_color_output = cfg_clone
+            .lock()
+            .ok()
+            .and_then(|c| c.logging.clone())
+            .and_then(|ls| ls.log_color_output)
+            .unwrap_or_default();
+        let logview_panel = logview::LogViewPanel::new(&main_panel, log_color_output);
         // Register the TextCtrl in UI-thread-local storage for callbacks
         logview::LOG_TEXT_CTRL.with(|cell| {
             *cell.borrow_mut() = Some(logview_panel.text_ctrl);

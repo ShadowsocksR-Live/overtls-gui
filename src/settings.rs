@@ -215,6 +215,9 @@ pub struct LoggingSettings {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_auto_scroll: Option<bool>, // log auto scroll
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_color_output: Option<bool>, // colored log output
 }
 
 impl Default for LoggingSettings {
@@ -228,6 +231,7 @@ impl Default for LoggingSettings {
             overtls_log_level: Some("Debug".to_string()),
             tun2proxy_log_level: Some("Debug".to_string()),
             log_auto_scroll: Some(true),
+            log_color_output: None,
         }
     }
 }
@@ -401,5 +405,6 @@ impl LoggingSettings {
             && self.overtls_log_level == other.overtls_log_level
             && self.tun2proxy_log_level == other.tun2proxy_log_level
             && self.global_log_level == other.global_log_level
+            && self.log_color_output == other.log_color_output
     }
 }

@@ -600,7 +600,17 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_label("Log Auto Scroll")
         .build();
 
-    let grid = FlexGridSizer::builder(8, 2).with_vgap(10).with_hgap(16).build();
+    let color_output_label = StaticText::builder(&panel)
+        .with_label("    ")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+    let color_output_checkbox = CheckBox::builder(&panel)
+        .with_value(logging_settings.log_color_output.unwrap_or_default())
+        .with_label("Colored log output")
+        .build();
+
+    let grid = FlexGridSizer::builder(9, 2).with_vgap(10).with_hgap(16).build();
     grid.add(&global_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&global_choice, 0, SizerFlag::Expand, 0);
     grid.add(&rustls_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
@@ -617,6 +627,8 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
     grid.add(&tun2proxy_choice, 0, SizerFlag::Expand, 0);
     grid.add(&auto_scroll_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&auto_scroll_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&color_output_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&color_output_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
@@ -634,6 +646,7 @@ fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
             overtls_log_level: overtls_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
             tun2proxy_log_level: tun2proxy_choice.get_selection().and_then(|i| log_levels.get(i as usize).cloned()),
             log_auto_scroll: if auto_scroll_checkbox.get_value() { Some(true) } else { None },
+            log_color_output: if color_output_checkbox.get_value() { Some(true) } else { None },
         }
     };
 
