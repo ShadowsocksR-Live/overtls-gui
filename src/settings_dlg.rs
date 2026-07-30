@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
 
 pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
-    let (w, h) = (600, 470);
+    let (w, h) = (600, 500);
     let (x, y) = center_rect(parent, w, h);
 
     // Create a generic dialog using the new builder

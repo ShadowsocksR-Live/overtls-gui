@@ -35,20 +35,20 @@ reqwest = { version = "0.13.4", default-features = false, features = [
     "blocking",
 ] }
 run-as = { version = "1.2.5", default-features = false }
-rxing = "0.9.1"
+rxing = "0.9.2"
 screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.150"
+serde_json = "1.0.151"
 strum = { version = "0.28.0", features = ["derive"] }
 systemproxy = { version = "0.3.5", default-features = false }
-tokio = { version = "1.53.0", features = ["full"] }
-tun2proxy = { version = "0.8.2", default-features = false }
+tokio = { version = "1.53.1", features = ["full"] }
+tun2proxy = { version = "0.8.3", default-features = false }
 url = { version = "2.5.8", default-features = false, features = [
     "std",
     "serde",
 ] }
 uuid = { version = "1.24.0", features = ["v4"] }
-wxdragon = { version = "0.9.17", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8f64163", features = [
+wxdragon = { version = "0.9.18", default-features = false, features = [
     "aui",
     "stc",
 ] }

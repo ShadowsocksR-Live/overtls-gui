@@ -218,8 +218,8 @@ pub fn ui_append_logs(lines: Vec<(log::Level, String)>, max_lines: usize, auto_s
                     }
                 }
 
-                ctrl.goto_end();
                 if auto_scroll {
+                    ctrl.goto_end();
                     ctrl.scroll_to_end();
                 }
             }
