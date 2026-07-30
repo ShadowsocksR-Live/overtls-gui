@@ -157,6 +157,7 @@ impl LogViewPanel {
         let sizer = BoxSizer::builder(Orientation::Vertical).build();
         let text_ctrl = if use_color {
             let ctrl = StyledTextCtrl::builder(&panel).with_size(Size::new(-1, 200)).build();
+            ctrl.set_undo_collection(false);
             ctrl.set_min_size(Size::new(-1, 200));
             ctrl.set_selection_mode_typed(SelectionMode::Stream);
             Self::init_log_styles(&ctrl);
