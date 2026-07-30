@@ -55,6 +55,20 @@ impl LogTextCtrl {
         }
     }
 
+    fn get_cursor_position(&self) -> i64 {
+        match self {
+            LogTextCtrl::Styled(ctrl) => ctrl.get_current_pos() as i64,
+            LogTextCtrl::Plain(ctrl) => ctrl.get_insertion_point(),
+        }
+    }
+
+    fn set_cursor_position(&self, position: i64) {
+        match self {
+            LogTextCtrl::Styled(ctrl) => ctrl.set_current_pos(position as i32),
+            LogTextCtrl::Plain(ctrl) => ctrl.set_insertion_point(position),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn set_selection_mode_typed(&self, mode: SelectionMode) {
         if let LogTextCtrl::Styled(ctrl) = self {
@@ -210,6 +224,8 @@ pub fn ui_append_logs(lines: Vec<(log::Level, String)>, max_lines: usize, auto_s
 
         LOG_TEXT_CTRL.with(|cell| {
             if let Some(ctrl) = cell.borrow().as_ref() {
+                let cursor_position = (!auto_scroll).then(|| ctrl.get_cursor_position());
+
                 if needs_rebuild {
                     rebuild_log_text(ctrl, &ring);
                 } else {
@@ -221,6 +237,8 @@ pub fn ui_append_logs(lines: Vec<(log::Level, String)>, max_lines: usize, auto_s
                 if auto_scroll {
                     ctrl.goto_end();
                     ctrl.scroll_to_end();
+                } else if let Some(cursor_position) = cursor_position {
+                    ctrl.set_cursor_position(cursor_position.min(ctrl.get_end_position()));
                 }
             }
         });
