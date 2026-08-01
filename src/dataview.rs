@@ -39,12 +39,14 @@ pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeM
     let align2 = DataViewAlign::Center;
 
     let remarks_col = create_text_column(name_map[&NodeFields::Remarks], NodeFields::Remarks, 200, align);
-    let path_col = create_text_column(name_map[&NodeFields::TunnelPath], NodeFields::TunnelPath, 260, align);
+    let type_col = create_text_column(name_map[&NodeFields::Type], NodeFields::Type, 80, align2);
+    let path_col = create_text_column(name_map[&NodeFields::ServerSecret], NodeFields::ServerSecret, 260, align);
     let host_col = create_text_column(name_map[&NodeFields::ServerHost], NodeFields::ServerHost, 160, align);
     let port_col = create_text_column(name_map[&NodeFields::ServerPort], NodeFields::ServerPort, 90, align2);
     let domain_col = create_text_column(name_map[&NodeFields::ServerDomain], NodeFields::ServerDomain, 160, align);
 
     dataview.append_column(&remarks_col);
+    dataview.append_column(&type_col);
     dataview.append_column(&host_col);
     dataview.append_column(&port_col);
     dataview.append_column(&domain_col);
@@ -104,10 +106,7 @@ pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeM
         } else {
             None
         };
-        let name = weak_opt
-            .as_ref()
-            .and_then(|w| w.upgrade())
-            .map(|rc| rc.borrow().remarks.clone().unwrap_or_else(|| "<unnamed>".to_string()));
+        let name = weak_opt.as_ref().and_then(|w| w.upgrade()).map(|rc| rc.borrow().title());
         log::info!("Selection changed, selected item: {name:?}");
         // Stash the weak pointer (if any) so the real menu handler can prefill the dialog
         selection_ctx::set_pending_details(weak_opt);
@@ -159,7 +158,7 @@ fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeMode
             // Parse each file into a ServerNode; silently log failures.
             let mut parsed_nodes: Vec<Rc<RefCell<ServerNode>>> = Vec::new();
             for path in &files {
-                match ServerNode::from_config_file(path) {
+                match settings::node_from_config_file(path) {
                     Ok(node) => {
                         parsed_nodes.push(Rc::new(RefCell::new(node)));
                     }

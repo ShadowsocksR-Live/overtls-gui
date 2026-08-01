@@ -1,20 +1,106 @@
-use crate::{ServerNode, selection_ctx, settings::Config, settings::OverTlsSettings};
+use crate::{
+    ServerNode, selection_ctx,
+    settings::{AnyTlsNode, AppSettings, LocalServerSettings, NodeType, OverTlsConfig, OverTlsNode},
+};
+use anytls::{ClientArgs, runner_execute};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use wxdragon::prelude::*;
 
-pub fn merge_system_settings_to_node_config(ot_settings: &OverTlsSettings, node_config: &mut ServerNode) {
-    if let Some(client) = &mut node_config.client {
-        client.listen_host = ot_settings.listen_host.clone();
-        client.listen_port = ot_settings.listen_port;
-        client.listen_user = ot_settings.listen_user.clone();
-        client.listen_password = ot_settings.listen_password.clone();
-        client.pool_max_size = Some(ot_settings.pool_max_size);
-        client.cache_dns = ot_settings.cache_dns;
+pub fn start_selected_node(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<AppSettings>>) {
+    let Some(node_rc) = selection_ctx::get_pending_details().and_then(|weak| weak.upgrade()) else {
+        show_proxy_error(parent, "Select a node before starting it.", "Info");
+        return;
+    };
+    let node = node_rc.borrow().clone();
+    match node.node_type() {
+        NodeType::OverTls => start_overtls_only(parent, model, cfg, node),
+        NodeType::AnyTls => start_anytls_only(parent, cfg, node),
     }
 }
 
-pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: Option<&ServerNode>) -> Option<tun2proxy::Args> {
+fn start_anytls_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>, node: ServerNode) {
+    if is_global_node_running() {
+        let _ = stop_running_node();
+        return;
+    }
+
+    let Some(mut any_tls_node) = node.downcast_ref::<AnyTlsNode>().cloned() else {
+        show_proxy_error(parent, "The selected node is not an AnyTLS node.", "Info");
+        return;
+    };
+    let settings = cfg.lock().unwrap().clone();
+    let local_settings = settings.local_settings.unwrap_or_default();
+
+    let url = match String::from(&any_tls_node.config).parse() {
+        Ok(value) => value,
+        Err(error) => {
+            show_proxy_error(parent, &format!("Invalid AnyTLS node address: {error}"), "Error");
+            return;
+        }
+    };
+
+    let listen_parameters = build_listen_parameters_from_local_settings(&local_settings);
+    any_tls_node.listen = Some(listen_parameters.clone());
+
+    let mut args = <ClientArgs as anytls::ClapParser>::parse_from(["anytls-client"]);
+    args.url = Some(url);
+    args.listen = listen_parameters;
+
+    let token = overtls::CancellationToken::new();
+    *GLOBAL_RUNNING_NODE_TOKEN.lock().unwrap() = Some(token.clone());
+    let running_token = GLOBAL_RUNNING_NODE_TOKEN.clone();
+    let running_handle = GLOBAL_RUNNING_NODE_HANDLE.clone();
+    let global_running_node = GLOBAL_RUNNING_NODE.clone();
+    let title = node.title();
+    let handle = std::thread::spawn(move || {
+        global_running_node.lock().unwrap().replace(Box::new(any_tls_node));
+        let result = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(std::io::Error::other)
+            .and_then(|runtime| runtime.block_on(async { runner_execute(token.clone(), args).await.map_err(std::io::Error::other) }));
+        if let Err(error) = &result {
+            log::error!("AnyTLS unexpectedly exited with error: {error}");
+        }
+        if let Ok(mut token) = running_token.try_lock()
+            && let Some(token) = token.take()
+        {
+            token.cancel();
+        }
+        if let Ok(mut handle) = running_handle.try_lock() {
+            handle.take();
+        }
+        global_running_node.lock().unwrap().take();
+        result
+    });
+    *GLOBAL_RUNNING_NODE_HANDLE.lock().unwrap() = Some(handle);
+    log::info!("AnyTLS '{title}' is starting...");
+}
+
+pub fn build_listen_parameters_from_local_settings(local_settings: &LocalServerSettings) -> anytls::ProxyParameters {
+    let addr = (local_settings.listen_host.clone(), local_settings.listen_port).into();
+    let credentials = match (local_settings.listen_user.as_ref(), local_settings.listen_password.as_ref()) {
+        (Some(user), Some(pass)) if !user.is_empty() || !pass.is_empty() => Some(anytls::UserKey::new(user.clone(), pass.clone())),
+        _ => None,
+    };
+    anytls::ProxyParameters::new(anytls::ProxyType::Socks5, addr, credentials)
+}
+
+pub fn merge_local_settings_to_overtls_node_config(local_settings: &LocalServerSettings, ot_node_config: &mut OverTlsConfig) {
+    if let Some(client) = &mut ot_node_config.client {
+        let listen_parameters = build_listen_parameters_from_local_settings(local_settings);
+        client.listen_host = listen_parameters.addr.host().to_string();
+        client.listen_port = listen_parameters.addr.port();
+        client.listen_user = listen_parameters.credentials.as_ref().map(|c| c.username.clone());
+        client.listen_password = listen_parameters.credentials.as_ref().map(|c| c.password.clone());
+
+        client.pool_max_size = Some(local_settings.pool_max_size);
+        client.cache_dns = local_settings.cache_dns;
+    }
+}
+
+pub fn cook_tun2proxy_config(settings: &crate::settings::AppSettings, running_node: Option<&ServerNode>) -> Option<tun2proxy::Args> {
     // start from user-configured arguments so bypass list and other options are preserved
     let mut result = settings.tun2proxy.clone().unwrap_or_default();
 
@@ -23,37 +109,53 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::Config, running_node: O
 
     // if running node exists and has client config, add the remote server IP to bypass list and set up proxy config for it
     // otherwise, if no running node or client config, just use the user-configured tun2proxy args without modification
-    if let Some(running_node) = running_node
-        && let Some(client) = running_node.client.as_ref()
-    {
-        let remote_server_ip = client.server_ip_addr()?;
+    if let Some(running_node) = running_node {
+        if let Some(ot) = running_node.downcast_ref::<OverTlsNode>()
+            && let Some(client) = ot.config.client.as_ref()
+        {
+            let remote_server_ip = client.server_ip_addr()?;
 
-        // always bypass the remote server's own IP so traffic directed to it
-        // does not go through the tunnel
-        result.bypass(remote_server_ip.ip().into());
+            // always bypass the remote server's own IP so traffic directed to it
+            // does not go through the tunnel
+            result.bypass(remote_server_ip.ip().into());
 
-        let client_host = normalize_connect_host(&client.listen_host);
-        // convert host:port into a network SocketAddr using string parsing
-        let listen_addr: std::net::SocketAddr = format!("{}:{}", client_host, client.listen_port).parse().ok()?;
+            let client_host = normalize_connect_host(&client.listen_host);
+            // convert host:port into a network SocketAddr using string parsing
+            let listen_addr: std::net::SocketAddr = format!("{}:{}", client_host, client.listen_port).parse().ok()?;
 
-        let mut proxy = tun2proxy::ArgProxy {
-            proxy_type: tun2proxy::ProxyType::Socks5,
-            addr: listen_addr,
-            ..Default::default()
-        };
+            let mut proxy = tun2proxy::ArgProxy {
+                proxy_type: tun2proxy::ProxyType::Socks5,
+                addr: listen_addr,
+                ..Default::default()
+            };
 
-        proxy.credentials = match (
-            &client.listen_user.as_ref().map_or("", |v| v),
-            &client.listen_password.as_ref().map_or("", |v| v),
-        ) {
-            (u, p) if u.is_empty() && p.is_empty() => None,
-            _ => Some(tun2proxy::UserKey::new(
-                client.listen_user.clone().unwrap_or_default(),
-                client.listen_password.clone().unwrap_or_default(),
-            )),
-        };
+            proxy.credentials = match (
+                &client.listen_user.as_ref().map_or("", |v| v),
+                &client.listen_password.as_ref().map_or("", |v| v),
+            ) {
+                (u, p) if u.is_empty() && p.is_empty() => None,
+                _ => Some(tun2proxy::UserKey::new(
+                    client.listen_user.clone().unwrap_or_default(),
+                    client.listen_password.clone().unwrap_or_default(),
+                )),
+            };
 
-        result.proxy(proxy);
+            result.proxy(proxy);
+        } else if let Some(anytls_node) = running_node.downcast_ref::<AnyTlsNode>() {
+            result.bypass(std::net::SocketAddr::try_from(&anytls_node.config.server).ok()?.ip().into());
+
+            let listen_addr = running_node.listen_address()?;
+            let proxy = tun2proxy::ArgProxy {
+                proxy_type: tun2proxy::ProxyType::Socks5,
+                addr: std::net::SocketAddr::try_from(&listen_addr.addr).ok()?,
+                credentials: listen_addr.credentials,
+            };
+
+            result.proxy(proxy);
+        } else {
+            log::warn!("Running node is neither OverTLS nor AnyTLS, cannot configure Tun2Proxy.");
+            return None;
+        }
     }
 
     Some(result)
@@ -70,16 +172,16 @@ type CancelTokenPtr = Arc<Mutex<Option<overtls::CancellationToken>>>;
 type ThreadHandlePtr = Arc<Mutex<Option<JoinHandle<std::io::Result<()>>>>>;
 
 // Independent runners for toolbar actions
-static OVERTLS_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static OVERTLS_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
-static OVERTLS_RUNNING_NODE: LazyLock<Arc<Mutex<Option<ServerNode>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static GLOBAL_RUNNING_NODE_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static GLOBAL_RUNNING_NODE_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+static GLOBAL_RUNNING_NODE: LazyLock<Arc<Mutex<Option<ServerNode>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 static TUN2PROXY_TOKEN: LazyLock<CancelTokenPtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 static TUN2PROXY_HANDLE: LazyLock<ThreadHandlePtr> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-pub fn is_overtls_running() -> bool {
+pub fn is_global_node_running() -> bool {
     // lock the handle and return true if it exists and the thread isn't finished
-    OVERTLS_HANDLE
+    GLOBAL_RUNNING_NODE_HANDLE
         .lock()
         .map(|opt| opt.as_ref().map(|h| !h.is_finished()).unwrap_or(false))
         .unwrap_or(false)
@@ -92,8 +194,8 @@ pub fn is_tun2proxy_running() -> bool {
         .unwrap_or(false)
 }
 
-pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<Config>>) {
-    if is_overtls_running() {
+pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<AppSettings>>, proxy_node: ServerNode) {
+    if is_global_node_running() {
         let dlg = MessageDialog::builder(parent, "OverTLS is already running.", "Info")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
             .build();
@@ -102,42 +204,27 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
         return;
     }
 
-    let Some(weak) = selection_ctx::get_pending_details() else {
-        let dlg = MessageDialog::builder(parent, "Please select a node first.", "Info")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+    let Some(over_tls_node) = proxy_node.downcast_ref::<OverTlsNode>() else {
+        show_proxy_error(parent, "The selected node is not an OverTLS node.", "Info");
         return;
     };
-    let Some(rc) = weak.upgrade() else {
-        let dlg = MessageDialog::builder(parent, "The selected node does not exist or is invalid.", "Info")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
-        return;
-    };
-    let mut node = rc.borrow().clone();
-    let settings = cfg.lock().unwrap().clone();
-    crate::core::merge_system_settings_to_node_config(&settings.over_tls.clone().unwrap_or_default(), &mut node);
+    let mut node: OverTlsConfig = over_tls_node.config.clone();
+    let local_settings = cfg.lock().unwrap().clone().local_settings.clone().unwrap_or_default();
+    merge_local_settings_to_overtls_node_config(&local_settings, &mut node);
     if let Err(e) = node.check_correctness(false) {
-        let dlg = MessageDialog::builder(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+        show_proxy_error(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start");
         return;
     }
 
     let title = node.remarks.clone().unwrap_or_else(|| "OverTLS".to_string());
     let token = overtls::CancellationToken::new();
-    *OVERTLS_TOKEN.lock().unwrap() = Some(token.clone());
-    let running_token = OVERTLS_TOKEN.clone();
-    let running_handle = OVERTLS_HANDLE.clone();
-    let overtls_running_node = OVERTLS_RUNNING_NODE.clone();
+    *GLOBAL_RUNNING_NODE_TOKEN.lock().unwrap() = Some(token.clone());
+    let running_token = GLOBAL_RUNNING_NODE_TOKEN.clone();
+    let running_handle = GLOBAL_RUNNING_NODE_HANDLE.clone();
+    let global_running_node = GLOBAL_RUNNING_NODE.clone();
     let handle = std::thread::spawn(move || {
-        overtls_running_node.lock().unwrap().replace(node.clone());
+        let node_wrapper = Box::new(OverTlsNode { config: node.clone() });
+        global_running_node.lock().unwrap().replace(node_wrapper);
         let res = {
             let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build();
             match rt {
@@ -156,20 +243,20 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
         if let Ok(mut handle) = running_handle.try_lock() {
             handle.take();
         }
-        overtls_running_node.lock().unwrap().take();
+        global_running_node.lock().unwrap().take();
         res
     });
-    *OVERTLS_HANDLE.lock().unwrap() = Some(handle);
+    *GLOBAL_RUNNING_NODE_HANDLE.lock().unwrap() = Some(handle);
     log::info!("OverTLS '{title}' is starting...");
     let _ = model; // keep param for symmetry; not used here
 }
 
-pub fn get_running_overtls_node() -> Option<overtls::Config> {
-    OVERTLS_RUNNING_NODE.lock().unwrap().clone()
+pub fn get_global_running_node() -> Option<ServerNode> {
+    GLOBAL_RUNNING_NODE.lock().unwrap().clone()
 }
 
 pub fn disable_system_proxy_if_overtls_stopped() {
-    if is_overtls_running() {
+    if is_global_node_running() {
         return;
     }
 
@@ -179,46 +266,51 @@ pub fn disable_system_proxy_if_overtls_stopped() {
 }
 
 pub fn toggle_system_proxy(parent: &dyn WxWidget) {
-    if !is_overtls_running() {
+    if !is_global_node_running() {
         disable_system_proxy_if_overtls_stopped();
-        show_proxy_error(parent, "Start OverTLS before using the system proxy.".to_string());
+        show_proxy_error(parent, "Start OverTLS before using the system proxy.", "Info");
         return;
     }
 
     if systemproxy::SystemProxy::is_enabled() {
         if let Err(e) = systemproxy::SystemProxy::stop() {
-            show_proxy_error(parent, format!("Failed to disable the system proxy: {e}"));
+            show_proxy_error(parent, &format!("Failed to disable the system proxy: {e}"), "Error");
         } else {
             log::info!("System proxy disabled.");
         }
         return;
     }
 
-    let Some(node) = get_running_overtls_node() else {
-        show_proxy_error(parent, "Start OverTLS before enabling the system proxy.".to_string());
+    let Some(node) = get_global_running_node() else {
+        show_proxy_error(parent, "Start OverTLS before enabling the system proxy.", "Info");
         return;
     };
-    let Some(client) = node.client else {
-        show_proxy_error(parent, "The running OverTLS node has no client listen address.".to_string());
+
+    let Some(listen) = node.listen_address() else {
+        show_proxy_error(parent, "The running OverTLS node has no client listen address.", "Error");
+        return;
+    };
+    let Ok(listen_addr) = std::net::SocketAddr::try_from(listen.addr) else {
+        show_proxy_error(parent, "The running OverTLS node has an invalid client listen address.", "Error");
         return;
     };
 
     let proxy = systemproxy::SystemProxy {
         enable: true,
-        host: normalize_connect_host(&client.listen_host).to_string(),
-        port: client.listen_port,
+        host: normalize_connect_host(&listen_addr.ip().to_string()).to_string(),
+        port: listen_addr.port(),
         ..Default::default()
     };
     if let Err(e) = proxy.set_system_proxy() {
-        show_proxy_error(parent, format!("Failed to enable the system proxy: {e}"));
+        show_proxy_error(parent, &format!("Failed to enable the system proxy: {e}"), "Error");
     } else {
         log::info!("System proxy enabled at {}:{}.", proxy.host, proxy.port);
     }
 }
 
-fn show_proxy_error(parent: &dyn WxWidget, message: String) {
+fn show_proxy_error(parent: &dyn WxWidget, message: &str, title: &str) {
     log::error!("{message}");
-    let dlg = MessageDialog::builder(parent, &message, "System Proxy")
+    let dlg = MessageDialog::builder(parent, message, title)
         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
         .build();
     let _ = dlg.show_modal();
@@ -226,11 +318,11 @@ fn show_proxy_error(parent: &dyn WxWidget, message: String) {
 }
 
 #[inline]
-pub fn stop_overtls_only() -> std::io::Result<()> {
-    stop_thread_with_cancel_token(&OVERTLS_TOKEN, &OVERTLS_HANDLE)
+pub fn stop_running_node() -> std::io::Result<()> {
+    stop_thread_with_cancel_token(&GLOBAL_RUNNING_NODE_TOKEN, &GLOBAL_RUNNING_NODE_HANDLE)
 }
 
-pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
+pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) {
     if !run_as::is_elevated() {
         let msg = "Tun2Proxy requires elevated privileges to run. Please restart the application as administrator.";
         let dlg = MessageDialog::builder(parent, msg, "Insufficient Privileges")
@@ -250,7 +342,7 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         return;
     }
 
-    let node = get_running_overtls_node();
+    let node = get_global_running_node();
 
     let settings = cfg.lock().unwrap().clone();
     let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, node.as_ref()) else {
@@ -307,7 +399,7 @@ pub fn stop_tun2proxy_only() -> std::io::Result<()> {
 }
 
 pub fn stop_all_services() -> std::io::Result<()> {
-    if let Err(e) = stop_overtls_only() {
+    if let Err(e) = stop_running_node() {
         log::debug!("Failed to stop OverTLS: {e}");
     }
     if let Err(e) = stop_tun2proxy_only() {

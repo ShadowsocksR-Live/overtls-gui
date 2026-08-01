@@ -163,7 +163,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                 && let Some(rc) = weak.upgrade()
             {
                 let node = rc.borrow();
-                if let Ok(json_str) = serde_json::to_string_pretty(&*node) {
+                if let Ok(json_str) = serde_json::to_string_pretty(&node.to_json_value().unwrap_or_default()) {
                     let root = cfg.lock().unwrap().get_last_opened_dir().to_string_lossy().to_string();
                     let dialog = FileDialog::builder(parent)
                         .with_message("Save as")
@@ -203,7 +203,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                     cfg.lock()
                         .unwrap()
                         .set_last_opened_dir(PathBuf::from(&path_option).parent().unwrap());
-                    if let Ok(node) = ServerNode::from_config_file(&path_option) {
+                    if let Ok(node) = settings::node_from_config_file(&path_option) {
                         let added = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Option<*const ServerNode>>(|list_rc| {
                             let rc = Rc::new(RefCell::new(node));
                             let ptr: *const ServerNode = get_raw_pointer(&rc);
@@ -228,7 +228,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
                 && let Some(rc) = weak.upgrade()
             {
                 let node = rc.borrow();
-                if let Ok(text) = &node.generate_ssr_url() {
+                if let Ok(text) = &node.generate_node_url() {
                     if Clipboard::get().set_text(text) {
                         log::info!("Node copied to clipboard.");
                     } else {
@@ -256,8 +256,8 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
             }
         }
 
-        MenuId::OverTls => {
-            log::info!("Menu/Toolbar: OverTLS clicked!");
+        MenuId::RunNode => {
+            log::info!("Menu/Toolbar: Run Node clicked!");
         }
 
         MenuId::Tun2proxy => {
@@ -284,8 +284,9 @@ pub fn paste() -> std::io::Result<ServerNode> {
     if let Some(text) = clipboard.get_text() {
         log::trace!("Pasted text: {text}");
         // Try to parse the text as a config
-        return ServerNode::from_json_str(&text)
-            .or_else(|_| ServerNode::from_ssr_url(&text))
+        return settings::node_from_json(&text)
+            .or_else(|_| settings::node_from_anytls_url(&text))
+            .or_else(|_| settings::node_from_ssr_url(&text))
             .map_err(|e| Error::new(InvalidData, format!("Some unknown error occurred: {e}")));
     }
 
@@ -324,7 +325,9 @@ fn server_node_from_image(dyn_img: &image::DynamicImage) -> std::io::Result<Serv
     let qr_str = qr_decode(dyn_img).map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
 
     // convert to overtls config
-    ServerNode::from_ssr_url(&qr_str).map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
+    settings::node_from_anytls_url(&qr_str)
+        .or_else(|_| settings::node_from_ssr_url(&qr_str))
+        .map_err(|e| Error::new(InvalidData, format!("Failed parse '{qr_str}': {e}")))
 }
 
 fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
@@ -350,7 +353,7 @@ fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
 pub fn screenshot_qr_import() -> std::io::Result<ServerNode> {
     let img = screenshot_to_image()?;
     let scr_str = qr_decode(&img)?;
-    Ok(ServerNode::from_ssr_url(&scr_str)?)
+    settings::node_from_anytls_url(&scr_str).or_else(|_| settings::node_from_ssr_url(&scr_str))
 }
 
 fn screenshot_to_image() -> std::io::Result<image::DynamicImage> {

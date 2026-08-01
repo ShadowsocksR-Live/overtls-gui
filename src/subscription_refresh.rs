@@ -7,32 +7,56 @@ use serde_json::Value;
 use std::{
     cell::RefCell,
     collections::HashSet,
+    net::SocketAddr,
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
 use wxdragon::prelude::*;
 
-fn build_subscription_client(running_node: Option<&ServerNode>) -> reqwest::blocking::Client {
-    let mut builder = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30));
-    if let Some(node) = running_node
-        && let Some(client) = node.client.as_ref()
-    {
-        let host = core::normalize_connect_host(&client.listen_host);
-        let proxy_addr = format!("socks5h://{}:{}", host, client.listen_port);
+fn build_subscription_client(running_node: Option<&ServerNode>) -> std::io::Result<reqwest::blocking::Client> {
+    use std::io::Error;
+    let mut builder = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10));
+    if let Some(node) = running_node {
+        log::info!("Running node detected; using its listen address as a SOCKS5 proxy for subscription requests. {node:?}");
+        let listen_address = SocketAddr::try_from(
+            &node
+                .listen_address()
+                .ok_or_else(|| Error::other("Failed to get listen address from running node"))?
+                .addr,
+        )
+        .map_err(|e| Error::other(format!("Failed to parse listen address: {e}")))?;
+        let host = listen_address.ip().to_string();
+        let host = core::normalize_connect_host(&host);
+        let proxy_addr = format!("socks5h://{}:{}", host, listen_address.port());
         if let Ok(proxy) = reqwest::Proxy::all(&proxy_addr) {
             builder = builder.proxy(proxy);
         }
     }
-    builder.build().unwrap_or_else(|e| {
-        log::error!("Failed to build subscription HTTP client: {e}");
-        reqwest::blocking::Client::new()
-    })
+    builder
+        .build()
+        .map_err(|e| Error::other(format!("Failed to build subscription HTTP client: {e}")))
 }
 
 fn node_address_key(node: &ServerNode) -> Option<(String, u16)> {
-    node.client
-        .as_ref()
-        .map(|client| (client.server_host.to_lowercase(), client.server_port))
+    Some((node.server_address(), node.server_port()))
+}
+
+fn parse_subscription_node(item: &Value) -> std::io::Result<ServerNode> {
+    use std::io::{Error, ErrorKind::InvalidData};
+    let node_type = item
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::new(InvalidData, "subscription entry has no type"))?;
+    let url = item
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::new(InvalidData, "subscription entry has no url"))?;
+
+    match node_type.to_ascii_lowercase().as_str() {
+        "anytls" => settings::node_from_anytls_url(url),
+        "overtls" => settings::node_from_ssr_url(url),
+        other => Err(Error::new(InvalidData, format!("unsupported subscription node type: {other}"))),
+    }
 }
 
 fn append_nodes_to_model(model: &CustomDataViewTreeModel, cfg: &ConfigRef, nodes: Vec<ServerNode>) -> usize {
@@ -138,10 +162,14 @@ pub fn refresh_subscriptions(cfg: &ConfigRef, sender: std::sync::mpsc::Sender<Re
         REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
         return;
     }
+    let running_node = core::get_global_running_node();
+    let Ok(client) = build_subscription_client(running_node.as_ref()) else {
+        log::error!("Failed to build subscription HTTP client; aborting refresh.");
+        REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
+        return;
+    };
 
     std::thread::spawn(move || {
-        let running_node = core::get_running_overtls_node();
-        let client = build_subscription_client(running_node.as_ref());
         let mut fetched_nodes = Vec::new();
 
         for subscription_url in subscriptions {
@@ -154,22 +182,18 @@ pub fn refresh_subscriptions(cfg: &ConfigRef, sender: std::sync::mpsc::Sender<Re
                                 let mut valid_found = false;
                                 if let Some(servers) = value.get("servers").and_then(|v| v.as_array()) {
                                     for item in servers {
-                                        let is_overtls = item
-                                            .get("type")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.eq_ignore_ascii_case("overtls"))
-                                            .unwrap_or(false);
-                                        let url = item.get("url").and_then(|v| v.as_str());
-                                        if is_overtls && let Some(url_text) = url {
-                                            valid_found = true;
-                                            match ServerNode::from_ssr_url(url_text) {
-                                                Ok(node) => fetched_nodes.push(node),
-                                                Err(err) => log::warn!("Failed to parse server URL from subscription: {err}"),
+                                        match parse_subscription_node(item) {
+                                            Ok(node) => {
+                                                valid_found = true;
+                                                fetched_nodes.push(node);
+                                            }
+                                            Err(err) => {
+                                                log::warn!("Failed to parse subscription server entry: {err}");
                                             }
                                         }
                                     }
                                     if !valid_found {
-                                        log::warn!("Subscription {} contained no valid overtls server entries", subscription_url);
+                                        log::warn!("Subscription {} contained no valid server entries", subscription_url);
                                     }
                                 } else {
                                     log::warn!("Subscription {} response did not contain a servers array", subscription_url);

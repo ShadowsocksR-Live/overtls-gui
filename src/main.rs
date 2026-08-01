@@ -7,7 +7,7 @@ pub enum MenuId {
     ScanQrCode = 1002,
     ImportNodeFile = 1003,
     New = 1004,
-    OverTls = 1005,
+    RunNode = 1005,
     Tun2proxy = 1006,
     SystemProxy = 1007,
     Open = 1008,
@@ -46,7 +46,7 @@ impl TryFrom<i32> for MenuId {
             x if x == MenuId::DeleteSubscription as i32 => Ok(MenuId::DeleteSubscription),
             x if x == MenuId::RefreshSubscriptions as i32 => Ok(MenuId::RefreshSubscriptions),
             x if x == MenuId::AutoRefreshSubscriptions as i32 => Ok(MenuId::AutoRefreshSubscriptions),
-            x if x == MenuId::OverTls as i32 => Ok(MenuId::OverTls),
+            x if x == MenuId::RunNode as i32 => Ok(MenuId::RunNode),
             x if x == MenuId::Tun2proxy as i32 => Ok(MenuId::Tun2proxy),
             x if x == MenuId::SystemProxy as i32 => Ok(MenuId::SystemProxy),
             x if x == MenuId::Open as i32 => Ok(MenuId::Open),
@@ -82,11 +82,10 @@ mod util;
 mod single_instance;
 
 use model::{ServerList, create_server_tree_model};
-pub(crate) use overtls::Config as ServerNode;
+pub(crate) use settings::ServerNode;
 use settings::{ConfigRef, MAIN_ICON, OVERTLS_ICON, PROXY_ICON, SETTINGS_ICON, TUN2PROXY_ICON, WindowConfig, create_bitmap_from_memory};
 use std::{
     cell::RefCell,
-    net::SocketAddr,
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -96,9 +95,16 @@ use std::{
 use subscription_refresh::{apply_refresh_result, is_refresh_in_progress, refresh_subscriptions};
 use wxdragon::prelude::*;
 
+fn install_rustls_crypto_provider() {
+    // Rustls needs an explicit process-wide crypto provider because this build pulls in multiple backends.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 fn main() -> std::io::Result<()> {
     // #[cfg(debug_assertions)]
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+
+    install_rustls_crypto_provider();
 
     let cfg = Arc::new(Mutex::new(settings::load_settings()));
 
@@ -206,7 +212,7 @@ fn main() -> std::io::Result<()> {
 
             // OverTLS tool (toggle) OVERTLS_ICON
             if let Ok(bmp) = create_bitmap_from_memory(OVERTLS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_check_tool(MenuId::OverTls as Id, "OverTLS", &bmp, "Start OverTLS (SOCKS5)");
+                toolbar.add_check_tool(MenuId::RunNode as Id, "Run node", &bmp, "Start node client (SOCKS5)");
             }
 
             if let Ok(bmp) = create_bitmap_from_memory(PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
@@ -290,7 +296,7 @@ fn main() -> std::io::Result<()> {
             .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
             .append_item(MenuId::New.into(), "New", "Create new node")
             .append_separator()
-            .append_check_item(MenuId::OverTls.into(), "OverTls\tF5", "Run OverTls node")
+            .append_check_item(MenuId::RunNode.into(), "Run Node\tF5", "Run node client")
             .append_check_item(MenuId::SystemProxy.into(), "System Proxy", "Use OverTLS as the system proxy")
             .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
             .append_separator()
@@ -356,13 +362,11 @@ fn main() -> std::io::Result<()> {
                 restore_main_window(&frame_for_refresh_ui);
             }
 
-            if core::is_overtls_running()
-                && let Some(overtls_cfg) = core::get_running_overtls_node()
-                && let Some(client) = overtls_cfg.client.as_ref()
+            if core::is_global_node_running()
+                && let Some(overtls_cfg) = core::get_global_running_node()
+                && let Some(listen_address) = overtls_cfg.listen_address()
             {
-                let addr: SocketAddr = format!("{}:{}", client.listen_host, client.listen_port)
-                    .parse()
-                    .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], client.listen_port)));
+                let addr = listen_address.addr;
                 status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
             } else {
                 status_bar_clone.set_status_text("Ready", 0);
@@ -498,7 +502,7 @@ fn main() -> std::io::Result<()> {
             }
 
             // special handling for the three toggle tools
-            if id == MenuId::OverTls as Id {
+            if id == MenuId::RunNode as Id {
                 // UI-level behavior: when no node is selected, switch to the Nodes page.
                 // Keep this here so core remains focused on service start logic only.
                 if !selection_ctx::has_pending_details()
@@ -507,10 +511,10 @@ fn main() -> std::io::Result<()> {
                     notebook.set_selection(0);
                 }
 
-                if core::is_overtls_running() {
-                    let _ = core::stop_overtls_only();
+                if core::is_global_node_running() {
+                    let _ = core::stop_running_node();
                 } else {
-                    core::start_overtls_only(&frame, &model_for_menu, &cfg_for_menu);
+                    core::start_selected_node(&frame, &model_for_menu, &cfg_for_menu);
                 }
             } else if id == MenuId::Tun2proxy as Id {
                 if !run_as::is_elevated() {
@@ -764,12 +768,12 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 
 // helper to update all three toggle buttons according to actual running state
 fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
-    let running = core::is_overtls_running();
+    let running = core::is_global_node_running();
     if !running {
         core::disable_system_proxy_if_overtls_stopped();
     }
-    tb.toggle_tool(MenuId::OverTls as Id, running);
-    tb.set_tool_short_help(MenuId::OverTls as Id, if running { "Stop OverTLS" } else { "Start OverTLS" });
+    tb.toggle_tool(MenuId::RunNode as Id, running);
+    tb.set_tool_short_help(MenuId::RunNode as Id, if running { "Stop node" } else { "Start node" });
 
     let t2p = core::is_tun2proxy_running();
     tb.toggle_tool(MenuId::Tun2proxy as Id, t2p);
@@ -789,18 +793,18 @@ fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
 }
 
 // helper to update the checked state of the same three actions on the main menu
-fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mutex<settings::Config>>) {
+fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mutex<settings::AppSettings>>) {
     if !run_as::is_elevated() {
         // If not elevated, ensure the Tun2Proxy menu item is disabled
         mb.enable_item(MenuId::Tun2proxy.into(), false);
     }
 
-    let overtls_running = core::is_overtls_running();
+    let overtls_running = core::is_global_node_running();
     if !overtls_running {
         core::disable_system_proxy_if_overtls_stopped();
     }
 
-    mb.check_item(MenuId::OverTls.into(), overtls_running);
+    mb.check_item(MenuId::RunNode.into(), overtls_running);
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
     let system_proxy = overtls_running && systemproxy::SystemProxy::is_enabled();
     mb.enable_item(MenuId::SystemProxy.into(), overtls_running);

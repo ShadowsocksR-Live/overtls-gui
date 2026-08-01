@@ -1,10 +1,10 @@
 use crate::settings::{
-    Config, ICON_SIZE, LoggingSettings, MAIN_ICON, OverTlsSettings, center_rect, create_bitmap_from_memory, save_settings,
+    AppSettings, ICON_SIZE, LocalServerSettings, LoggingSettings, MAIN_ICON, center_rect, create_bitmap_from_memory, save_settings,
 };
 use std::sync::{Arc, Mutex};
 use wxdragon::prelude::*;
 
-pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
+pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) {
     let (w, h) = (600, 500);
     let (x, y) = center_rect(parent, w, h);
 
@@ -28,7 +28,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
 
     // Create tab pages and their readers (each page can return its own struct)
     let (common_panel, common_read) = create_common_tab(&notebook, cfg);
-    let (overtls_panel, overtls_read) = create_overtls_tab(&notebook, cfg);
+    let (local_panel, local_read) = create_local_settings_tab(&notebook, cfg);
     let (tun2proxy_panel, tun2proxy_read) = create_tun2proxy_tab(&notebook, &tun2proxy_settings);
     let (logging_panel, logging_read) = create_logging_tab(&notebook, cfg);
 
@@ -46,7 +46,7 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
 
     // Add tabs to notebook
     notebook.add_page(&common_panel, "Common", true, Some(0));
-    notebook.add_page(&overtls_panel, "OverTLS", false, Some(1));
+    notebook.add_page(&local_panel, "Local Server", false, Some(1));
     notebook.add_page(&tun2proxy_panel, "Tun2proxy", false, Some(1));
     notebook.add_page(&logging_panel, "Logging", false, Some(2));
 
@@ -86,9 +86,9 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
         cfg_lock.run_as_admin = if run_as_admin_checked { Some(true) } else { None };
         cfg_lock.subscription_refresh_interval_minutes = Some(refresh_interval_minutes);
 
-        // OverTLS
-        let new_overtls: OverTlsSettings = overtls_read();
-        cfg_lock.over_tls = Some(new_overtls);
+        // Local Server
+        let new_local: LocalServerSettings = local_read();
+        cfg_lock.local_settings = Some(new_local);
 
         // Tun2proxy
         let new_tun2proxy: tun2proxy::Args = tun2proxy_read();
@@ -138,13 +138,13 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) {
     }
 }
 
-fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> OverTlsSettings + 'static) {
+fn create_local_settings_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (Panel, impl Fn() -> LocalServerSettings + 'static) {
     let panel = Panel::builder(parent).build();
 
     // Label size for alignment
     let label_size = Size::new(150, -1);
 
-    let over_tls_settings = cfg.lock().unwrap().over_tls.clone().unwrap_or_default();
+    let local_settings = cfg.lock().unwrap().local_settings.clone().unwrap_or_default();
 
     // Listen Host
     let host_label = StaticText::builder(&panel)
@@ -153,7 +153,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(label_size)
         .build();
     let host_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
-    host_input.set_value(&over_tls_settings.listen_host);
+    host_input.set_value(&local_settings.listen_host);
 
     // Listen Port
     let port_label = StaticText::builder(&panel)
@@ -162,7 +162,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(label_size)
         .build();
     let port_input = SpinCtrl::builder(&panel)
-        .with_initial_value(over_tls_settings.listen_port as i32)
+        .with_initial_value(local_settings.listen_port as i32)
         .with_min_value(1)
         .with_max_value(u16::MAX as i32)
         .build();
@@ -174,7 +174,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(label_size)
         .build();
     let user_input = TextCtrl::builder(&panel).with_size(Size::new(200, -1)).build();
-    if let Some(user) = &over_tls_settings.listen_user {
+    if let Some(user) = &local_settings.listen_user {
         user_input.set_value(user);
     }
 
@@ -188,7 +188,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(Size::new(200, -1))
         .with_style(TextCtrlStyle::Password)
         .build();
-    if let Some(password) = &over_tls_settings.listen_password {
+    if let Some(password) = &local_settings.listen_password {
         password_input.set_value(password);
     }
 
@@ -199,7 +199,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(label_size)
         .build();
     let pool_input = SpinCtrl::builder(&panel)
-        .with_initial_value(over_tls_settings.pool_max_size as i32)
+        .with_initial_value(local_settings.pool_max_size as i32)
         .with_min_value(10)
         .with_max_value(10000)
         .with_size(Size::new(100, -1))
@@ -212,7 +212,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
         .with_size(label_size)
         .build();
     let cache_dns_checkbox = CheckBox::builder(&panel)
-        .with_value(over_tls_settings.cache_dns)
+        .with_value(local_settings.cache_dns)
         .with_label("Cache DNS")
         .build();
 
@@ -237,7 +237,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
 
     // Build a reader closure to return OverTlsSettings from current inputs
     let reader = {
-        move || OverTlsSettings {
+        move || LocalServerSettings {
             listen_host: host_input.get_value(),
             listen_port: port_input.value() as u16,
             listen_user: {
@@ -256,7 +256,7 @@ fn create_overtls_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel
     (panel, reader)
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> (bool, u64) + 'static) {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (Panel, impl Fn() -> (bool, u64) + 'static) {
     let panel = Panel::builder(parent).build();
 
     // Common settings: run as admin and subscription refresh interval
@@ -464,7 +464,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
     (panel, reader)
 }
 
-fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<Config>>) -> (Panel, impl Fn() -> LoggingSettings + 'static) {
+fn create_logging_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (Panel, impl Fn() -> LoggingSettings + 'static) {
     let logging_settings = cfg.lock().unwrap().logging.clone().unwrap_or_default();
 
     let panel = Panel::builder(parent).build();

@@ -9,13 +9,10 @@ pub fn show_qrcode_dlg(parent: &dyn WxWidget, node: &ServerNode) -> std::io::Res
     let (w, h) = (360, 400);
     let (x, y) = center_rect(parent, w, h);
 
-    let title = node
-        .remarks
-        .as_deref()
-        .unwrap_or(node.client.as_ref().map(|c| c.server_host.as_str()).unwrap_or("Unnamed"));
+    let title = node.title();
 
     // Generate the SSR URL for the node and display it as a QR code
-    let bmp = if let Ok(ssr_url) = node.generate_ssr_url() {
+    let bmp = if let Ok(ssr_url) = node.generate_node_url() {
         // Generate QR Code image
         let code = qrcode::QrCode::new(ssr_url.as_bytes()).map_err(|e| std::io::Error::other(format!("QR code generation error: {e}")))?;
         let img = code.render::<image::Luma<u8>>().min_dimensions(IMG_WIDTH, IMG_WIDTH).build();
