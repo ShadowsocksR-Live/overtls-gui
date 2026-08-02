@@ -196,11 +196,7 @@ pub fn is_tun2proxy_running() -> bool {
 
 pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, cfg: &Arc<Mutex<AppSettings>>, proxy_node: ServerNode) {
     if is_global_node_running() {
-        let dlg = MessageDialog::builder(parent, "OverTLS is already running.", "Info")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+        show_proxy_error(parent, "Proxy node is already running.", "Info");
         return;
     }
 
@@ -255,20 +251,20 @@ pub fn get_global_running_node() -> Option<ServerNode> {
     GLOBAL_RUNNING_NODE.lock().unwrap().clone()
 }
 
-pub fn disable_system_proxy_if_overtls_stopped() {
+pub fn disable_system_proxy_if_proxy_node_stopped() {
     if is_global_node_running() {
         return;
     }
 
     if let Err(e) = systemproxy::SystemProxy::stop() {
-        log::error!("Failed to disable the system proxy after OverTLS stopped: {e}");
+        log::error!("Failed to disable the system proxy after proxy node stopped: {e}");
     }
 }
 
 pub fn toggle_system_proxy(parent: &dyn WxWidget) {
     if !is_global_node_running() {
-        disable_system_proxy_if_overtls_stopped();
-        show_proxy_error(parent, "Start OverTLS before using the system proxy.", "Info");
+        disable_system_proxy_if_proxy_node_stopped();
+        show_proxy_error(parent, "Start proxy node before using the system proxy.", "Info");
         return;
     }
 
@@ -282,25 +278,26 @@ pub fn toggle_system_proxy(parent: &dyn WxWidget) {
     }
 
     let Some(node) = get_global_running_node() else {
-        show_proxy_error(parent, "Start OverTLS before enabling the system proxy.", "Info");
+        show_proxy_error(parent, "Start proxy node before enabling the system proxy.", "Info");
         return;
     };
 
     let Some(listen) = node.listen_address() else {
-        show_proxy_error(parent, "The running OverTLS node has no client listen address.", "Error");
+        show_proxy_error(parent, "The running proxy node node has no client listen address.", "Error");
         return;
     };
     let Ok(listen_addr) = std::net::SocketAddr::try_from(listen.addr) else {
-        show_proxy_error(parent, "The running OverTLS node has an invalid client listen address.", "Error");
+        show_proxy_error(parent, "The running proxy node has an invalid client listen address.", "Error");
         return;
     };
 
-    let proxy = systemproxy::SystemProxy {
+    let mut proxy = systemproxy::SystemProxy {
         enable: true,
         host: normalize_connect_host(&listen_addr.ip().to_string()).to_string(),
         port: listen_addr.port(),
         ..Default::default()
     };
+    proxy.deal_with_bypass_simplify(true);
     if let Err(e) = proxy.set_system_proxy() {
         show_proxy_error(parent, &format!("Failed to enable the system proxy: {e}"), "Error");
     } else {
@@ -325,20 +322,12 @@ pub fn stop_running_node() -> std::io::Result<()> {
 pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) {
     if !run_as::is_elevated() {
         let msg = "Tun2Proxy requires elevated privileges to run. Please restart the application as administrator.";
-        let dlg = MessageDialog::builder(parent, msg, "Insufficient Privileges")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+        show_proxy_error(parent, msg, "Insufficient Privileges");
         return;
     }
 
     if is_tun2proxy_running() {
-        let dlg = MessageDialog::builder(parent, "Tun2Proxy is already running.", "Info")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+        show_proxy_error(parent, "Tun2Proxy is already running.", "Info");
         return;
     }
 
@@ -346,11 +335,8 @@ pub fn start_tun2proxy_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>
 
     let settings = cfg.lock().unwrap().clone();
     let Some(t2p_args) = crate::core::cook_tun2proxy_config(&settings, node.as_ref()) else {
-        let dlg = MessageDialog::builder(parent, "Failed to prepare Tun2Proxy configuration. Please check your settings and make sure the running node has a valid client configuration.", "Error")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-            .build();
-        let _ = dlg.show_modal();
-        dlg.destroy();
+        let msg = "Failed to prepare Tun2Proxy configuration. Please check your settings and make sure the running node has a valid client configuration.";
+        show_proxy_error(parent, msg, "Error");
         return;
     };
 

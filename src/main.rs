@@ -770,7 +770,7 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     let running = core::is_global_node_running();
     if !running {
-        core::disable_system_proxy_if_overtls_stopped();
+        core::disable_system_proxy_if_proxy_node_stopped();
     }
     tb.toggle_tool(MenuId::RunNode as Id, running);
     tb.set_tool_short_help(MenuId::RunNode as Id, if running { "Stop node" } else { "Start node" });
@@ -801,7 +801,7 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mute
 
     let overtls_running = core::is_global_node_running();
     if !overtls_running {
-        core::disable_system_proxy_if_overtls_stopped();
+        core::disable_system_proxy_if_proxy_node_stopped();
     }
 
     mb.check_item(MenuId::RunNode.into(), overtls_running);
