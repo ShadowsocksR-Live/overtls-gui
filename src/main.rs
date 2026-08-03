@@ -83,7 +83,9 @@ mod single_instance;
 
 use model::{ServerList, create_server_tree_model};
 pub(crate) use settings::ServerNode;
-use settings::{ConfigRef, MAIN_ICON, OVERTLS_ICON, PROXY_ICON, SETTINGS_ICON, TUN2PROXY_ICON, WindowConfig, create_bitmap_from_memory};
+use settings::{
+    AppSettingsRef, MAIN_ICON, OVERTLS_ICON, PROXY_ICON, SETTINGS_ICON, TUN2PROXY_ICON, WindowConfig, create_bitmap_from_memory,
+};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -769,9 +771,6 @@ pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
 // helper to update all three toggle buttons according to actual running state
 fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     let running = core::is_global_node_running();
-    if !running {
-        core::disable_system_proxy_if_proxy_node_stopped();
-    }
     tb.toggle_tool(MenuId::RunNode as Id, running);
     tb.set_tool_short_help(MenuId::RunNode as Id, if running { "Stop node" } else { "Start node" });
 
@@ -779,8 +778,7 @@ fn sync_toolbar(tb: &wxdragon::widgets::ToolBar) {
     tb.toggle_tool(MenuId::Tun2proxy as Id, t2p);
     tb.set_tool_short_help(MenuId::Tun2proxy as Id, if t2p { "Stop Tun2Proxy" } else { "Start Tun2Proxy" });
 
-    let system_proxy = running && systemproxy::SystemProxy::is_enabled();
-    tb.enable_tool(MenuId::SystemProxy as Id, running);
+    let system_proxy = systemproxy::SystemProxy::is_enabled();
     tb.toggle_tool(MenuId::SystemProxy as Id, system_proxy);
     tb.set_tool_short_help(
         MenuId::SystemProxy as Id,
@@ -800,14 +798,10 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mute
     }
 
     let overtls_running = core::is_global_node_running();
-    if !overtls_running {
-        core::disable_system_proxy_if_proxy_node_stopped();
-    }
 
     mb.check_item(MenuId::RunNode.into(), overtls_running);
     mb.check_item(MenuId::Tun2proxy.into(), core::is_tun2proxy_running());
-    let system_proxy = overtls_running && systemproxy::SystemProxy::is_enabled();
-    mb.enable_item(MenuId::SystemProxy.into(), overtls_running);
+    let system_proxy = systemproxy::SystemProxy::is_enabled();
     mb.check_item(MenuId::SystemProxy.into(), system_proxy);
 
     let enable_auto_refresh = cfg.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
@@ -842,7 +836,7 @@ fn do_hide_frame(frame: &Frame) {
 
 fn prompt_add_subscription(
     parent: &dyn WxWidget,
-    cfg: &ConfigRef,
+    cfg: &AppSettingsRef,
     subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
     notebook_ref: &Rc<RefCell<Option<Notebook>>>,
 ) {
@@ -892,7 +886,7 @@ fn refresh_subscriptions_list(list: &DataViewListCtrl, subscriptions: &[url::Url
 
 fn prompt_delete_subscription(
     parent: &dyn WxWidget,
-    cfg: &ConfigRef,
+    cfg: &AppSettingsRef,
     row: usize,
     subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
 ) {
@@ -915,7 +909,7 @@ fn prompt_delete_subscription(
 
 fn prompt_edit_subscription(
     parent: &dyn WxWidget,
-    cfg: &ConfigRef,
+    cfg: &AppSettingsRef,
     row: usize,
     subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>,
 ) {
@@ -961,7 +955,7 @@ fn prompt_edit_subscription(
     }
 }
 
-fn delete_subscription(cfg: &ConfigRef, url: &url::Url, subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>) {
+fn delete_subscription(cfg: &AppSettingsRef, url: &url::Url, subscriptions_list_handle: &Rc<RefCell<Option<DataViewListCtrl>>>) {
     let mut cfg_lock = cfg.lock().unwrap();
     if !cfg_lock.remove_subscription(url) {
         log::warn!("Subscription URL not found for deletion: {}", url);

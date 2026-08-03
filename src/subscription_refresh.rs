@@ -1,7 +1,7 @@
 use crate::{
     ServerNode, core,
     model::{ServerList, get_raw_pointer},
-    settings::{self, ConfigRef},
+    settings::{self, AppSettingsRef},
 };
 use serde_json::Value;
 use std::{
@@ -59,7 +59,7 @@ fn parse_subscription_node(item: &Value) -> std::io::Result<ServerNode> {
     }
 }
 
-fn append_nodes_to_model(model: &CustomDataViewTreeModel, cfg: &ConfigRef, nodes: Vec<ServerNode>) -> usize {
+fn append_nodes_to_model(model: &CustomDataViewTreeModel, cfg: &AppSettingsRef, nodes: Vec<ServerNode>) -> usize {
     let mut added = 0;
     let mut existing: HashSet<(String, u16)> = HashSet::new();
     let mut removed_ptrs: Vec<*const ServerNode> = Vec::new();
@@ -148,7 +148,7 @@ pub fn is_refresh_in_progress() -> bool {
     REFRESH_IN_PROGRESS.load(Ordering::SeqCst)
 }
 
-pub fn refresh_subscriptions(cfg: &ConfigRef, sender: std::sync::mpsc::Sender<RefreshResult>, show_dialog: bool) {
+pub fn refresh_subscriptions(cfg: &AppSettingsRef, sender: std::sync::mpsc::Sender<RefreshResult>, show_dialog: bool) {
     if REFRESH_IN_PROGRESS
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -215,7 +215,7 @@ pub fn refresh_subscriptions(cfg: &ConfigRef, sender: std::sync::mpsc::Sender<Re
     });
 }
 
-pub fn apply_refresh_result(parent: &Frame, cfg: &ConfigRef, model: &CustomDataViewTreeModel, result: RefreshResult) {
+pub fn apply_refresh_result(parent: &Frame, cfg: &AppSettingsRef, model: &CustomDataViewTreeModel, result: RefreshResult) {
     let added = append_nodes_to_model(model, cfg, result.nodes);
     if result.show_dialog {
         let msg = if added > 0 {

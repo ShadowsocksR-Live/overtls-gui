@@ -3,13 +3,13 @@ use crate::ServerNode;
 use crate::model::get_raw_pointer;
 use crate::model::{NodeFields, ServerList, find_node_via_raw_ptr};
 use crate::selection_ctx;
-use crate::settings::ConfigRef;
+use crate::settings::AppSettingsRef;
 use crate::settings::{self, WIDGET_MARGIN};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use wxdragon::*;
 
-pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, frame: &Frame, cfg: &ConfigRef) -> Panel {
+pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, frame: &Frame, cfg: &AppSettingsRef) -> Panel {
     // Create a panel for the parent widget
     let panel = Panel::builder(parent).build();
 
@@ -126,7 +126,7 @@ pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeM
 }
 
 // Enable file drag-and-drop on the DataViewCtrl (via the parent panel).
-fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeModel, cfg: &ConfigRef) {
+fn enable_widget_dnd(drop_target: &impl WxWidget, model: &CustomDataViewTreeModel, cfg: &AppSettingsRef) {
     let model_for_dnd = model.clone();
     let cfg_for_dnd = cfg.clone();
     FileDropTarget::builder(drop_target)

@@ -1,6 +1,6 @@
 use crate::{
     ServerNode, selection_ctx,
-    settings::{AnyTlsNode, AppSettings, LocalServerSettings, NodeType, OverTlsConfig, OverTlsNode},
+    settings::{AnyTlsNode, AppSettings, AppSettingsRef, LocalServerSettings, NodeType, OverTlsConfig, OverTlsNode},
 };
 use anytls::{ClientArgs, runner_execute};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -251,23 +251,7 @@ pub fn get_global_running_node() -> Option<ServerNode> {
     GLOBAL_RUNNING_NODE.lock().unwrap().clone()
 }
 
-pub fn disable_system_proxy_if_proxy_node_stopped() {
-    if is_global_node_running() {
-        return;
-    }
-
-    if let Err(e) = systemproxy::SystemProxy::stop() {
-        log::error!("Failed to disable the system proxy after proxy node stopped: {e}");
-    }
-}
-
-pub fn toggle_system_proxy(parent: &dyn WxWidget) {
-    if !is_global_node_running() {
-        disable_system_proxy_if_proxy_node_stopped();
-        show_proxy_error(parent, "Start proxy node before using the system proxy.", "Info");
-        return;
-    }
-
+pub fn toggle_system_proxy(parent: &dyn WxWidget, cfg: &AppSettingsRef) {
     if systemproxy::SystemProxy::is_enabled() {
         if let Err(e) = systemproxy::SystemProxy::stop() {
             show_proxy_error(parent, &format!("Failed to disable the system proxy: {e}"), "Error");
@@ -277,17 +261,22 @@ pub fn toggle_system_proxy(parent: &dyn WxWidget) {
         return;
     }
 
-    let Some(node) = get_global_running_node() else {
-        show_proxy_error(parent, "Start proxy node before enabling the system proxy.", "Info");
-        return;
+    let listen = if let Some(node) = get_global_running_node() {
+        node.listen_address()
+    } else {
+        let cfg = cfg.lock().unwrap();
+        let tmp = LocalServerSettings::default();
+        let local_settings = cfg.local_settings.as_ref().unwrap_or(&tmp);
+        Some(build_listen_parameters_from_local_settings(local_settings))
     };
 
-    let Some(listen) = node.listen_address() else {
-        show_proxy_error(parent, "The running proxy node node has no client listen address.", "Error");
+    let Some(listen) = listen else {
+        let msg = "The proxy node has no client listen address and no local proxy settings are available.";
+        show_proxy_error(parent, msg, "Error");
         return;
     };
     let Ok(listen_addr) = std::net::SocketAddr::try_from(listen.addr) else {
-        show_proxy_error(parent, "The running proxy node has an invalid client listen address.", "Error");
+        show_proxy_error(parent, "The proxy listen address is invalid.", "Error");
         return;
     };
 

@@ -385,7 +385,7 @@ pub struct AppSettings {
     pub subscription_auto_refresh: Option<bool>,
 }
 
-pub(crate) type ConfigRef = std::sync::Arc<std::sync::Mutex<AppSettings>>;
+pub(crate) type AppSettingsRef = std::sync::Arc<std::sync::Mutex<AppSettings>>;
 
 pub(crate) const WIDGET_MARGIN: i32 = 2;
 pub(crate) const APP_TITLE: &str = "OverTLS-GUI";

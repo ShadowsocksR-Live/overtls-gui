@@ -1,5 +1,5 @@
 use crate::selection_ctx;
-use crate::settings::{self, ConfigRef};
+use crate::settings::{self, AppSettingsRef};
 use crate::{MenuId, ServerNode, about_dlg, details_dlg, model::ServerList, model::get_raw_pointer, settings_dlg, show_qrcode_dlg};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -9,8 +9,8 @@ use wxdragon::prelude::*;
 
 /// Dispatch a menu command ID to the same logic used by Frame::on_menu.
 /// This allows other UI elements (e.g., double-click on DataView) to reuse menu actions.
-pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &ConfigRef) {
-    fn persist_model_servers(cfg: &ConfigRef, model: &CustomDataViewTreeModel) {
+pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeModel, id: i32, cfg: &AppSettingsRef) {
+    fn persist_model_servers(cfg: &AppSettingsRef, model: &CustomDataViewTreeModel) {
         if let Some(servers) = model.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
             list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
         }) {
@@ -266,7 +266,7 @@ pub fn handle_menu_command(parent: &dyn WxWidget, model: &CustomDataViewTreeMode
 
         MenuId::SystemProxy => {
             log::info!("Menu/Toolbar: System Proxy clicked!");
-            crate::core::toggle_system_proxy(parent);
+            crate::core::toggle_system_proxy(parent, cfg);
         }
 
         _ => {
