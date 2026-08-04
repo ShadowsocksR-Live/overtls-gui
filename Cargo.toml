@@ -56,7 +56,7 @@ url = { version = "2.5.8", default-features = false, features = [
     "serde",
 ] }
 uuid = { version = "1.24.0", features = ["v4"] }
-wxdragon = { version = "0.9.18", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "46c1c4e", features = [
+wxdragon = { version = "0.9.18", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "13ce543", features = [
     "aui",
     "stc",
 ] }
