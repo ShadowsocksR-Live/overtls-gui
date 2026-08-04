@@ -30,7 +30,7 @@ chrono = "0.4.45"
 dirs = "6.0.0"
 downcast-rs = "2.0.2"
 env_logger = "0.11.11"
-image = { version = "=0.25.8", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.33"
 overtls = { version = "0.3.13" }
 qrcode = "0.14.1"
@@ -42,7 +42,6 @@ rustls = { version = "0.23.43", default-features = false, features = [
     "aws-lc-rs",
 ] }
 run-as = { version = "1.2.5", default-features = false }
-rxing = "0.9.2"
 screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -60,6 +59,7 @@ wxdragon = { version = "0.9.18", default-features = false, git = "https://github
     "aui",
     "stc",
 ] }
+zedbar = "0.4.1"
 
 [build-dependencies]
 chrono = "0.4.45"

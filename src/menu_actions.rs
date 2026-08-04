@@ -333,20 +333,21 @@ fn server_node_from_image(dyn_img: &image::DynamicImage) -> std::io::Result<Serv
 fn qr_decode(img: &image::DynamicImage) -> std::io::Result<String> {
     use std::io::{Error, ErrorKind::InvalidData};
 
-    let mut hints = rxing::DecodeHints {
-        TryHarder: Some(true),
-        ..Default::default()
-    };
-
-    let results = rxing::helpers::detect_multiple_in_image_with_hints(img.clone(), &mut hints)
-        .map_err(|e| Error::new(InvalidData, format!("Failed to decode QR code: {e}")))?;
+    let gray = img.to_luma8();
+    let (width, height) = gray.dimensions();
+    let mut zedbar_img = zedbar::Image::from_gray(gray.as_raw(), width, height)
+        .map_err(|e| Error::new(InvalidData, format!("Failed to prepare image for QR code decoding: {e}")))?;
+    let mut scanner = zedbar::Scanner::new();
+    let results = scanner.scan(&mut zedbar_img);
 
     if results.is_empty() {
         return Err(Error::new(InvalidData, "No QR code found"));
     }
 
-    let text = results[0].getText();
-    log::trace!("rxing decoded QR code: {}", text);
+    let text = results[0]
+        .data_string()
+        .ok_or_else(|| Error::new(InvalidData, "QR code contains invalid text"))?;
+    log::trace!("zedbar decoded QR code: {}", text);
     Ok(text.to_string())
 }
 
