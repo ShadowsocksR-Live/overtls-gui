@@ -35,7 +35,7 @@ log = "0.4.33"
 overtls = { version = "0.3.13" }
 qrcode = "0.14.1"
 reqwest = { version = "0.13.4", default-features = false, features = [
-    "native-tls",
+    "rustls",
     "blocking",
 ] }
 rustls = { version = "0.23.43", default-features = false, features = [
