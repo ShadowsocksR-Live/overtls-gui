@@ -18,6 +18,14 @@ on Linux, Windows, and macOS.
 - **Privilege Handling**: detect admin/root status and restart elevated when required on Linux.
 - **Logging**: integrated log capture with configurable log settings.
 
+## Screenshots
+
+![Main Window](screenshots/img1.png)
+
+![Subscription Management](screenshots/img3.png)
+
+![Settings Dialog](screenshots/img2.png)
+
 ## Installation & Build
 
 ### Requirements
