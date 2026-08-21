@@ -130,7 +130,7 @@ fn main() -> std::io::Result<()> {
     // Note: No longer use log::set_max_level, as it is now controlled by the Logger internally
     log::set_max_level(log::LevelFilter::Trace);
 
-    let log_queue = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let log_queue: Arc<Mutex<Vec<(log::Level, String, String)>>> = Arc::new(Mutex::new(Vec::new()));
     let log_queue_thread = log_queue.clone();
     let shutting_down = Arc::new(AtomicBool::new(false));
     std::thread::spawn(move || {
@@ -139,627 +139,643 @@ fn main() -> std::io::Result<()> {
         }
     });
 
-    let cfg_clone = cfg.clone();
-    let shutting_down_for_ui = shutting_down.clone();
-
-    let ui_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
-    let ui_timer_holder_clone = ui_timer_holder.clone();
-
-    let _ = wxdragon::main(move |_| {
-        // Build model once from settings.servers
-        let nodes = cfg_clone.lock().unwrap().servers.clone();
-
-        let nodes = nodes.unwrap_or_default().into_iter().map(|n| Rc::new(RefCell::new(n))).collect();
-        let data = Rc::new(RefCell::new(ServerList { nodes }));
-        let model = create_server_tree_model(data);
-        let (refresh_request_tx, refresh_request_rx) = std::sync::mpsc::channel::<bool>();
-        let (refresh_result_tx, refresh_result_rx) = std::sync::mpsc::channel();
-
-        let win_cfg = cfg_clone.lock().unwrap().window.as_ref().cloned().unwrap_or_default();
-
-        let frame = Frame::builder()
-            .with_title(settings::APP_TITLE)
-            .with_position(win_cfg.get_point())
-            .with_size(win_cfg.get_size())
-            .build();
-
-        // if we bound the activation port successfully earlier, start a
-        // background thread to accept connections and send a simple signal over
-        // a channel. the UI thread will poll the receiver via the shared UI
-        // timer and perform the actual raise operation, which avoids moving the
-        // `Frame` across thread boundaries.
-        let activation_rx = activation_listener.map(crate::single_instance::spawn_activation_listener);
-
-        let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((48, 48))).unwrap();
-        frame.set_icon(&icon_bitmap);
-
-        // --- Status Bar Setup ---
-        let status_bar = StatusBar::builder(&frame)
-            .with_fields_count(3)
-            .with_status_widths(vec![-1, 150, 100])
-            .add_initial_text(0, "Ready")
-            .add_initial_text(1, "Center Field")
-            .add_initial_text(2, "Right Field")
-            .build();
-
-        let status_bar_clone = status_bar;
-        let cfg_for_refresh_ui = cfg_clone.clone();
-        let model_for_refresh_ui = model.clone();
-        let cfg_for_autosave = cfg_for_refresh_ui.clone();
-        let model_for_autosave = model_for_refresh_ui.clone();
-        let frame_for_refresh_ui = frame;
-        let refresh_result_tx_for_ui = refresh_result_tx.clone();
-        let shutting_down_for_status = shutting_down_for_ui.clone();
-
-        // --- ToolBar Setup ---
-        // Use flat style to ensure separators are drawn visibly
-        let tb_style = ToolBarStyle::Text | ToolBarStyle::Default | ToolBarStyle::Flat;
-        // keep a handle so we can toggle state later when tools are clicked
-        let toolbar_opt = frame.create_tool_bar(Some(tb_style), ID_ANY as i32);
-        if let Some(toolbar) = &toolbar_opt {
-            let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
-
-            if let Ok(bmp) = create_bitmap_from_memory(SETTINGS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_tool(MenuId::Settings as Id, "Settings", &bmp, "Open Settings");
-            }
-
-            // toolbar.add_separator();
-            let sep: StaticLine = StaticLine::builder(toolbar)
-                .with_size(Size::new(1, icon_size.height + 8))
-                .with_style(StaticLineStyle::Vertical)
-                .build();
-            sep.set_background_color(colours::gray::GRAY_600);
-            sep.set_foreground_color(colours::gray::GRAY_600);
-            toolbar.add_control(&sep);
-
-            // OverTLS tool (toggle) OVERTLS_ICON
-            if let Ok(bmp) = create_bitmap_from_memory(OVERTLS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_check_tool(MenuId::RunNode as Id, "Run node", &bmp, "Start node client (SOCKS5)");
-            }
-
-            if let Ok(bmp) = create_bitmap_from_memory(PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_check_tool(MenuId::SystemProxy as Id, "System Proxy", &bmp, "Use OverTLS as the system proxy");
-            }
-
-            // Tun2Proxy tool (toggle)
-            if let Ok(bmp) = create_bitmap_from_memory(TUN2PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
-                toolbar.add_check_tool(MenuId::Tun2proxy as Id, "Tun2Proxy", &bmp, "Start Tun2Proxy");
-            }
-
-            toolbar.realize();
-            // if the process is not elevated, tun2proxy cannot run; disable the tool
-            if !run_as::is_elevated() {
-                toolbar.enable_tool(MenuId::Tun2proxy as Id, false);
-                toolbar.set_tool_short_help(MenuId::Tun2proxy as Id, "Requires administrator privileges");
-            }
-
-            // ensure initial button states match any existing services
-            sync_toolbar(toolbar);
+    if let Err(e) = wxdragon::main({
+        let cfg = cfg.clone();
+        let activation_listener = activation_listener;
+        let shutting_down = shutting_down.clone();
+        let log_queue = log_queue.clone();
+        move |app| {
+            on_wxdragon_init(app, cfg, activation_listener, shutting_down, log_queue);
         }
-
-        // Create popup menu for taskbar icon
-        let mut tray_icon_menu = Menu::builder()
-            .append_item(MenuId::Open.into(), "Open Application", "Open the main application window")
-            .append_separator()
-            .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
-            .append_item(MenuId::About.into(), "About", "About this application")
-            .append_separator()
-            .append_item(MenuId::Quit.into(), "Quit", "Quit the application")
-            .build();
-        let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::CustomStatusItem).build();
-        taskbar.set_popup_menu(&mut tray_icon_menu);
-        let frame_taskbar = frame;
-        let cfg_for_taskbar = cfg_clone.clone();
-        taskbar.on_menu(move |event| {
-            let menu_id = event.get_id();
-            match menu_id {
-                x if x == MenuId::Open as i32 => {
-                    log::info!("📂 Open Application clicked!");
-                    restore_main_window(&frame_taskbar);
-                }
-                x if x == MenuId::Settings as i32 => {
-                    log::info!("⚙️ Settings clicked!");
-                    settings_dlg::settings_dlg(&frame_taskbar, &cfg_for_taskbar);
-                }
-                x if x == MenuId::About as i32 => {
-                    log::info!("ℹ️ About clicked!");
-                    about_dlg::show_about_dialog(&frame_taskbar);
-                }
-                x if x == MenuId::Quit as i32 => {
-                    log::info!("🚪 Quit clicked!");
-                    frame_taskbar.close(true);
-                }
-                _ => {
-                    log::warn!("Unknown menu item clicked: {menu_id}");
-                }
-            }
-        });
-
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        taskbar.on_left_down(move |_event| {
-            log::info!("Taskbar icon clicked, toggling main window visibility.");
-            toggle_main_window_from_tray(&frame_taskbar);
-        });
-
-        let success = taskbar.set_icon(&icon_bitmap, "OverTLS server node manager");
-
-        if success && taskbar.is_icon_installed() {
-            log::info!("TaskBarIcon successfully installed in system tray.");
-        } else {
-            log::error!("Failed to set taskbar icon.");
-        }
-
-        // --- Menu Bar Setup ---
-        // Main menu
-        let main_menu = Menu::builder()
-            .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
-            .append_separator()
-            .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+Shift+Q", "Scan QR code from screen")
-            .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
-            .append_item(MenuId::New.into(), "New", "Create new node")
-            .append_separator()
-            .append_check_item(MenuId::RunNode.into(), "Run Node\tF5", "Run node client")
-            .append_check_item(MenuId::SystemProxy.into(), "System Proxy", "Use OverTLS as the system proxy")
-            .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
-            .append_separator()
-            .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
-            .build();
-
-        // Nodes menu
-        let nodes_menu = Menu::builder()
-            .append_item(MenuId::ViewDetails.into(), "View Details", "View node details")
-            .append_item(MenuId::ExportNode.into(), "Export Node", "Export node")
-            .append_item(MenuId::ShowQrCode.into(), "Show QR Code", "Show QR code for node")
-            .append_separator()
-            .append_item(MenuId::Delete.into(), "Delete\tDel", "Delete node")
-            .append_separator()
-            .append_item(MenuId::Copy.into(), "Copy\tCtrl+C", "Copy node")
-            .append_item(MenuId::Paste.into(), "Paste\tCtrl+V", "Paste node")
-            .build();
-
-        let refresh_info = "Refresh all subscription URLs in the background";
-        let auto_info = "Toggle automatic subscription refresh";
-        // Subscriptions menu
-        let subscriptions_menu = Menu::builder()
-            .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
-            .append_item(MenuId::EditSubscription.into(), "Edit", "Edit the selected subscription URL")
-            .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
-            .append_separator()
-            .append_item(MenuId::RefreshSubscriptions.into(), "Refresh all subscriptions", refresh_info)
-            .append_separator()
-            .append_check_item(MenuId::AutoRefreshSubscriptions.into(), "Refresh automatically", auto_info)
-            .build();
-
-        // Help menu
-        let help_menu = Menu::builder()
-            .append_item(MenuId::About.into(), "About", "Show about dialog")
-            .build();
-
-        let menubar = MenuBar::builder()
-            .append(main_menu, "Main")
-            .append(nodes_menu, "Nodes")
-            .append(subscriptions_menu, "Subscriptions")
-            .append(help_menu, "Help")
-            .build();
-        frame.set_menu_bar(menubar);
-
-        // ensure the menu items have the correct checked state at startup as well
-        if let Some(mbar) = frame.get_menu_bar() {
-            sync_menu(&mbar, &cfg_clone);
-        }
-
-        let proxy_safety_toolbar = toolbar_opt;
-        let proxy_safety_cfg = cfg_clone.clone();
-
-        // A shared UI timer handles status refresh, activation polling,
-        // toolbar/menu sync, and autosave checks.
-        let status_timer = Timer::new(&frame);
-        status_timer.on_tick(move |_evt| {
-            if shutting_down_for_status.load(Ordering::Acquire) {
-                return;
-            }
-            if let Some(act_rx) = &activation_rx
-                && act_rx.try_recv().is_ok()
-            {
-                restore_main_window(&frame_for_refresh_ui);
-            }
-
-            if core::is_global_node_running()
-                && let Some(overtls_cfg) = core::get_global_running_node()
-                && let Some(listen_address) = overtls_cfg.listen_address()
-            {
-                let addr = listen_address.addr;
-                status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
-            } else {
-                status_bar_clone.set_status_text("Ready", 0);
-            }
-
-            let proxy = if systemproxy::SystemProxy::is_enabled() { "ON" } else { "OFF" };
-            status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
-            status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
-
-            while let Ok(show_dialog) = refresh_request_rx.try_recv() {
-                refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
-            }
-            while let Ok(result) = refresh_result_rx.try_recv() {
-                apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
-            }
-
-            if let Some(toolbar) = &proxy_safety_toolbar {
-                sync_toolbar(toolbar);
-            }
-            if let Some(mbar) = frame_for_refresh_ui.get_menu_bar() {
-                sync_menu(&mbar, &proxy_safety_cfg);
-            }
-
-            if settings::is_dirty()
-                && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
-                    list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
-                })
-            {
-                let mut cfg_lock = cfg_for_autosave.lock().unwrap();
-                cfg_lock.servers = Some(servers);
-                if settings::save_settings(&cfg_lock) {
-                    log::debug!("Auto-saved dirty settings.");
-                } else {
-                    log::error!("Auto-save of dirty settings failed.");
-                }
-            }
-        });
-        status_timer.start(1000, false);
-        *ui_timer_holder_clone.borrow_mut() = Some(status_timer);
-
-        let cfg_for_auto_refresh = cfg_clone.clone();
-        let refresh_request_tx_for_auto = refresh_request_tx.clone();
-        std::thread::spawn(move || {
-            let mut next_refresh = None;
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-
-                let (enabled, interval) = {
-                    let cfg = cfg_for_auto_refresh.lock().unwrap();
-                    (
-                        cfg.subscription_auto_refresh.unwrap_or(false),
-                        std::time::Duration::from_secs(cfg.subscription_refresh_interval_minutes.unwrap_or(10).max(1) * 60),
-                    )
-                };
-
-                if !enabled {
-                    next_refresh = None;
-                    continue;
-                }
-
-                let deadline = next_refresh.get_or_insert_with(|| std::time::Instant::now() + interval);
-                if std::time::Instant::now() < *deadline {
-                    continue;
-                }
-
-                *deadline = std::time::Instant::now() + interval;
-                if refresh_request_tx_for_auto.send(false).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let subscriptions_list_handle: Rc<RefCell<Option<DataViewListCtrl>>> = Rc::new(RefCell::new(None));
-        let selected_subscription_row: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
-        let notebook_ref: Rc<RefCell<Option<Notebook>>> = Rc::new(RefCell::new(None));
-
-        // Dynamically enable/disable Node menu items when the menu bar opens
-        // Disable actions that require a selection if none is present
-        let frame_for_menu_open = frame;
-        let notebook_for_menu_open = notebook_ref.clone();
-        let subscriptions_list_handle_for_open = subscriptions_list_handle.clone();
-        let cfg_on_menu_opened = cfg_clone.clone();
-        frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
-            // Only handle the menubar case here; popup menus use a different path
-            if event.is_popup() {
-                log::info!("Popup menu opened, skipping dynamic enable/disable.");
-                return;
-            }
-            if let Some(mbar) = frame_for_menu_open.get_menu_bar() {
-                let has_sel = selection_ctx::has_pending_details();
-                // Items that require a selection
-                let gated = [
-                    MenuId::ViewDetails,
-                    MenuId::ExportNode,
-                    MenuId::ShowQrCode,
-                    MenuId::Delete,
-                    MenuId::Copy,
-                ];
-                for id in gated {
-                    // Enable only if there is a pending selection
-                    let _ = mbar.enable_item(id.into(), has_sel);
-                }
-
-                let sub_has_sel = if let Some(notebook) = &*notebook_for_menu_open.borrow() {
-                    notebook.selection() == 1
-                        && subscriptions_list_handle_for_open
-                            .borrow()
-                            .as_ref()
-                            .is_some_and(|list| list.get_selected_row().is_some())
-                } else {
-                    false
-                };
-                let _ = mbar.enable_item(MenuId::EditSubscription.into(), sub_has_sel);
-                let _ = mbar.enable_item(MenuId::DeleteSubscription.into(), sub_has_sel);
-                let _ = mbar.enable_item(MenuId::RefreshSubscriptions.into(), !is_refresh_in_progress());
-
-                // also update the checked state of our three toggle actions
-                sync_menu(&mbar, &cfg_on_menu_opened);
-            }
-        });
-
-        let model_for_menu = model.clone();
-        let cfg_for_menu = cfg_clone.clone();
-        let notebook_for_menu = notebook_ref.clone();
-        let subscriptions_list_handle_for_menu = subscriptions_list_handle.clone();
-        let selected_subscription_row_for_menu = selected_subscription_row.clone();
-        let refresh_request_tx_for_menu = refresh_request_tx.clone();
-        frame.on_menu(move |event| {
-            let id = event.get_id();
-            if id == MenuId::Quit as i32 {
-                frame.close(true);
-                return;
-            }
-
-            // special handling for the three toggle tools
-            if id == MenuId::RunNode as Id {
-                // UI-level behavior: when no node is selected, switch to the Nodes page.
-                // Keep this here so core remains focused on service start logic only.
-                if !selection_ctx::has_pending_details()
-                    && let Some(notebook) = *notebook_for_menu.borrow()
-                {
-                    notebook.set_selection(0);
-                }
-
-                if core::is_global_node_running() {
-                    let _ = core::stop_running_node();
-                } else {
-                    core::start_selected_node(&frame, &model_for_menu, &cfg_for_menu);
-                }
-            } else if id == MenuId::Tun2proxy as Id {
-                if !run_as::is_elevated() {
-                    // action not allowed without admin rights
-                    let dlg = MessageDialog::builder(&frame, "Tun2Proxy requires administrator privileges.", "Permission Denied")
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                        .build();
-                    let _ = dlg.show_modal();
-                    dlg.destroy();
-                } else if core::is_tun2proxy_running() {
-                    let _ = core::stop_tun2proxy_only();
-                } else {
-                    core::start_tun2proxy_only(&frame, &cfg_for_menu);
-                }
-            } else if id == MenuId::Subscribe as i32 {
-                prompt_add_subscription(&frame, &cfg_for_menu, &subscriptions_list_handle_for_menu, &notebook_for_menu);
-            } else if id == MenuId::EditSubscription as i32 {
-                if let Some(row) = *selected_subscription_row_for_menu.borrow() {
-                    prompt_edit_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
-                }
-            } else if id == MenuId::DeleteSubscription as i32 {
-                if let Some(row) = *selected_subscription_row_for_menu.borrow() {
-                    prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
-                }
-            } else if id == MenuId::RefreshSubscriptions as i32 {
-                let _ = refresh_request_tx_for_menu.send(true);
-            } else if id == MenuId::AutoRefreshSubscriptions as i32 {
-                let enabled = !cfg_for_menu.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
-                {
-                    let mut cfg_lock = cfg_for_menu.lock().unwrap();
-                    cfg_lock.subscription_auto_refresh = Some(enabled);
-                    settings::save_settings(&cfg_lock);
-                }
-                if let Some(mbar) = frame.get_menu_bar() {
-                    mbar.check_item(MenuId::AutoRefreshSubscriptions.into(), enabled);
-                }
-            } else if id == MenuId::Delete as i32 {
-                if let Some(notebook) = *notebook_for_menu.borrow()
-                    && notebook.selection() == 1
-                    && let Some(row) = *selected_subscription_row_for_menu.borrow()
-                {
-                    prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
-                } else {
-                    menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
-                }
-            } else {
-                menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
-            }
-
-            // each time we're about to handle something, refresh toolbar state
-            if let Some(tb) = &toolbar_opt {
-                sync_toolbar(tb);
-            }
-            // and keep the menubar entries checked appropriately as well
-            if let Some(mbar) = frame.get_menu_bar() {
-                sync_menu(&mbar, &cfg_for_menu);
-            }
-        });
-
-        // clone config for use in close/destroy handlers
-        let cfg_for_close = cfg_clone.clone();
-        let shutting_down_for_close = shutting_down_for_ui.clone();
-
-        frame.on_close(move |evt| {
-            if let wxdragon::WindowEventData::General(event) = &evt {
-                // Record current position/size before hiding – otherwise the window will be
-                // hidden and get_position() returns (-1,-1) which ends up in settings.
-                let pos = frame.get_position();
-                let size = frame.get_size();
-                // only store positive coordinates; hide/minimized windows return (-1,-1)
-                if pos.x >= 0 && pos.y >= 0 && size.width > 0 && size.height > 0 {
-                    let win = WindowConfig::new(pos, size);
-                    cfg_for_close.lock().unwrap().window = Some(win);
-                } else {
-                    log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
-                }
-
-                if !event.can_veto() {
-                    shutting_down_for_close.store(true, Ordering::Release);
-                    systemproxy::SystemProxy::stop().ok();
-                    let _ = core::stop_all_services();
-                }
-
-                if event.can_veto() {
-                    // If the close event is the window's default behavior (not from the taskbar menu or main menu)
-                    // we veto the close and hide the window instead
-                    log::debug!("Close event vetoed, hiding window instead of closing.");
-                    event.veto();
-                    do_hide_frame(&frame);
-                }
-            }
-        });
-
-        let model_for_destroy = model.clone();
-        let cfg_for_destroy = cfg_clone.clone();
-        let shutting_down_for_destroy = shutting_down_for_ui.clone();
-        frame.on_destroy(move |_data| {
-            shutting_down_for_destroy.store(true, Ordering::Release);
-
-            // Persist current servers from the model back to settings
-            if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
-                list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
-            }) {
-                cfg_for_destroy.lock().unwrap().servers = Some(servers);
-            }
-
-            // Clean up the TaskBarIcon, it's important to call destroy() to remove the icon from the system tray,
-            // or we can't exit the application main loop.
-            taskbar.destroy();
-
-            // Clean up the tray icon menu to release rust closures attached to menu items
-            tray_icon_menu.destroy_menu();
-        });
-
-        // --- Main Panel Layout ---
-        let main_panel = Panel::builder(&frame).build();
-
-        let notebook = Notebook::builder(&main_panel).build();
-        *notebook_ref.borrow_mut() = Some(notebook);
-        let nodes_panel = dataview::create_data_view_panel(&notebook, &model, &frame, &cfg_clone);
-        let subscriptions = cfg_clone.lock().unwrap().get_subscriptions();
-        let subscriptions_panel =
-            create_subscriptions_panel(&notebook, &subscriptions, &subscriptions_list_handle, &selected_subscription_row);
-        notebook.add_page(&nodes_panel, "Nodes", true, None);
-        notebook.add_page(&subscriptions_panel, "Subscriptions", false, None);
-
-        // Integrate LogView module (bottom pane)
-        let log_color_output = cfg_clone
-            .lock()
-            .ok()
-            .and_then(|c| c.logging.clone())
-            .and_then(|ls| ls.log_color_output)
-            .unwrap_or_default();
-        let logview_panel = logview::LogViewPanel::new(&main_panel, log_color_output);
-        // Register the TextCtrl in UI-thread-local storage for callbacks
-        logview::LOG_TEXT_CTRL.with(|cell| {
-            *cell.borrow_mut() = Some(logview_panel.text_ctrl);
-        });
-
-        // Use AUI manager to layout the notebook and log view as dockable panes.
-        let mgr = AuiManager::builder(&main_panel).build();
-        mgr.add_pane_with_info(
-            &notebook,
-            AuiPaneInfo::new()
-                .with_name("main_notebook")
-                .with_caption("Main")
-                .caption_visible(false)
-                .center_pane()
-                .pane_border(false)
-                .dockable(true)
-                .movable(false)
-                .floatable(false)
-                .best_size(800, 400),
-        );
-        mgr.add_pane_with_info(
-            &logview_panel.panel,
-            AuiPaneInfo::new()
-                .with_name("log_view")
-                .with_caption("Log View")
-                .caption_visible(true)
-                .bottom()
-                .layer(1)
-                .position(0)
-                .pane_border(true)
-                .gripper(false)
-                .floatable(true)
-                .dockable(true)
-                .movable(true)
-                .min_size(400, 160)
-                .best_size(800, 200)
-                .close_button(false)
-                .maximize_button(true),
-        );
-        mgr.update();
-
-        let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
-        main_sizer.add(&main_panel, 1, SizerFlag::Expand | SizerFlag::All, 0);
-        frame.set_sizer(main_sizer, true);
-
-        // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
-        {
-            let ui_log_queue = log_queue.clone();
-            let shutting_down_for_logs = shutting_down_for_ui.clone();
-            std::thread::spawn(move || {
-                // Throttle updates a bit to avoid overwhelming the UI
-                const SLEEP_MS: u64 = 120;
-                const MAX_LOG_LINES: usize = 1000;
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(SLEEP_MS));
-
-                    if shutting_down_for_logs.load(Ordering::Acquire) {
-                        break;
-                    }
-
-                    // Drain any pending log tuples into a local batch
-                    let mut batch: Vec<(log::Level, String, String)> = Vec::new();
-                    if let Ok(mut q) = ui_log_queue.lock()
-                        && !q.is_empty()
-                    {
-                        batch.extend(q.drain(..));
-                    }
-
-                    if batch.is_empty() {
-                        continue;
-                    }
-
-                    // Pre-format text in the background thread; Strings are Send
-                    let log_lines: Vec<(log::Level, String)> = batch
-                        .into_iter()
-                        .map(|(level, module, msg)| {
-                            // Example: "[2025-06-01T12:34:56Z INFO module] message\n"
-                            let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-                            let line = format!("[{ts} {:<5} {}] {}\n", level, module, msg);
-                            (level, line)
-                        })
-                        .collect();
-
-                    // Apply text update on the UI thread using a ring buffer (stable trimming)
-                    // Respect user's auto-scroll preference from settings
-                    let cfg_for_autoscroll = cfg_clone.clone();
-                    let shutting_down_for_callback = shutting_down_for_logs.clone();
-                    wxdragon::call_after(Box::new(move || {
-                        if shutting_down_for_callback.load(Ordering::Acquire) {
-                            return;
-                        }
-                        let auto_scroll = cfg_for_autoscroll
-                            .lock()
-                            .ok()
-                            .and_then(|c| c.logging.clone())
-                            .and_then(|ls| ls.log_auto_scroll)
-                            .unwrap_or_default();
-                        logview::ui_append_logs(log_lines, MAX_LOG_LINES, auto_scroll);
-                    }));
-                }
-            });
-        }
-
-        frame.show(true);
-    });
+    }) {
+        log::error!("Failed in wxDragon main loop: {e}");
+    }
 
     // Save settings on exit
     settings::save_settings(&cfg.lock().unwrap());
     Ok(())
+}
+
+fn on_wxdragon_init(
+    _app: App,
+    cfg: AppSettingsRef,
+    activation_listener: Option<std::net::TcpListener>,
+    shutting_down: Arc<AtomicBool>,
+    log_queue: Arc<Mutex<Vec<(log::Level, String, String)>>>,
+) {
+    let cfg_clone = cfg.clone();
+    let shutting_down_for_ui = shutting_down.clone();
+    let ui_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
+    let ui_timer_holder_clone = ui_timer_holder.clone();
+
+    // Build model once from settings.servers
+    let nodes = cfg_clone.lock().unwrap().servers.clone();
+
+    let nodes = nodes.unwrap_or_default().into_iter().map(|n| Rc::new(RefCell::new(n))).collect();
+    let data = Rc::new(RefCell::new(ServerList { nodes }));
+    let model = create_server_tree_model(data);
+    let (refresh_request_tx, refresh_request_rx) = std::sync::mpsc::channel::<bool>();
+    let (refresh_result_tx, refresh_result_rx) = std::sync::mpsc::channel();
+
+    let win_cfg = cfg_clone.lock().unwrap().window.as_ref().cloned().unwrap_or_default();
+
+    let frame = Frame::builder()
+        .with_title(settings::APP_TITLE)
+        .with_position(win_cfg.get_point())
+        .with_size(win_cfg.get_size())
+        .build();
+
+    // if we bound the activation port successfully earlier, start a
+    // background thread to accept connections and send a simple signal over
+    // a channel. the UI thread will poll the receiver via the shared UI
+    // timer and perform the actual raise operation, which avoids moving the
+    // `Frame` across thread boundaries.
+    let activation_rx = activation_listener.map(crate::single_instance::spawn_activation_listener);
+
+    let icon_bitmap = create_bitmap_from_memory(MAIN_ICON, Some((48, 48))).unwrap();
+    frame.set_icon(&icon_bitmap);
+
+    // --- Status Bar Setup ---
+    let status_bar = StatusBar::builder(&frame)
+        .with_fields_count(3)
+        .with_status_widths(vec![-1, 150, 100])
+        .add_initial_text(0, "Ready")
+        .add_initial_text(1, "Center Field")
+        .add_initial_text(2, "Right Field")
+        .build();
+
+    let status_bar_clone = status_bar;
+    let cfg_for_refresh_ui = cfg_clone.clone();
+    let model_for_refresh_ui = model.clone();
+    let cfg_for_autosave = cfg_for_refresh_ui.clone();
+    let model_for_autosave = model_for_refresh_ui.clone();
+    let frame_for_refresh_ui = frame;
+    let refresh_result_tx_for_ui = refresh_result_tx.clone();
+    let shutting_down_for_status = shutting_down_for_ui.clone();
+
+    // --- ToolBar Setup ---
+    // Use flat style to ensure separators are drawn visibly
+    let tb_style = ToolBarStyle::Text | ToolBarStyle::Default | ToolBarStyle::Flat;
+    // keep a handle so we can toggle state later when tools are clicked
+    let toolbar_opt = frame.create_tool_bar(Some(tb_style), ID_ANY as i32);
+    if let Some(toolbar) = &toolbar_opt {
+        let icon_size = ArtProvider::get_native_dip_size_hint(ArtClient::Toolbar);
+
+        if let Ok(bmp) = create_bitmap_from_memory(SETTINGS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            toolbar.add_tool(MenuId::Settings as Id, "Settings", &bmp, "Open Settings");
+        }
+
+        // toolbar.add_separator();
+        let sep: StaticLine = StaticLine::builder(toolbar)
+            .with_size(Size::new(1, icon_size.height + 8))
+            .with_style(StaticLineStyle::Vertical)
+            .build();
+        sep.set_background_color(colours::gray::GRAY_600);
+        sep.set_foreground_color(colours::gray::GRAY_600);
+        toolbar.add_control(&sep);
+
+        // OverTLS tool (toggle) OVERTLS_ICON
+        if let Ok(bmp) = create_bitmap_from_memory(OVERTLS_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            toolbar.add_check_tool(MenuId::RunNode as Id, "Run node", &bmp, "Start node client (SOCKS5)");
+        }
+
+        if let Ok(bmp) = create_bitmap_from_memory(PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            toolbar.add_check_tool(MenuId::SystemProxy as Id, "System Proxy", &bmp, "Use OverTLS as the system proxy");
+        }
+
+        // Tun2Proxy tool (toggle)
+        if let Ok(bmp) = create_bitmap_from_memory(TUN2PROXY_ICON, Some((icon_size.width as u32, icon_size.height as u32))) {
+            toolbar.add_check_tool(MenuId::Tun2proxy as Id, "Tun2Proxy", &bmp, "Start Tun2Proxy");
+        }
+
+        toolbar.realize();
+        // if the process is not elevated, tun2proxy cannot run; disable the tool
+        if !run_as::is_elevated() {
+            toolbar.enable_tool(MenuId::Tun2proxy as Id, false);
+            toolbar.set_tool_short_help(MenuId::Tun2proxy as Id, "Requires administrator privileges");
+        }
+
+        // ensure initial button states match any existing services
+        sync_toolbar(toolbar);
+    }
+
+    // Create popup menu for taskbar icon
+    let mut tray_icon_menu = Menu::builder()
+        .append_item(MenuId::Open.into(), "Open Application", "Open the main application window")
+        .append_separator()
+        .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
+        .append_item(MenuId::About.into(), "About", "About this application")
+        .append_separator()
+        .append_item(MenuId::Quit.into(), "Quit", "Quit the application")
+        .build();
+    let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::CustomStatusItem).build();
+    taskbar.set_popup_menu(&mut tray_icon_menu);
+    let frame_taskbar = frame;
+    let cfg_for_taskbar = cfg_clone.clone();
+    taskbar.on_menu(move |event| {
+        let menu_id = event.get_id();
+        match menu_id {
+            x if x == MenuId::Open as i32 => {
+                log::info!("📂 Open Application clicked!");
+                restore_main_window(&frame_taskbar);
+            }
+            x if x == MenuId::Settings as i32 => {
+                log::info!("⚙️ Settings clicked!");
+                settings_dlg::settings_dlg(&frame_taskbar, &cfg_for_taskbar);
+            }
+            x if x == MenuId::About as i32 => {
+                log::info!("ℹ️ About clicked!");
+                about_dlg::show_about_dialog(&frame_taskbar);
+            }
+            x if x == MenuId::Quit as i32 => {
+                log::info!("🚪 Quit clicked!");
+                frame_taskbar.close(true);
+            }
+            _ => {
+                log::warn!("Unknown menu item clicked: {menu_id}");
+            }
+        }
+    });
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    taskbar.on_left_down(move |_event| {
+        log::info!("Taskbar icon clicked, toggling main window visibility.");
+        toggle_main_window_from_tray(&frame_taskbar);
+    });
+
+    let success = taskbar.set_icon(&icon_bitmap, "OverTLS server node manager");
+
+    if success && taskbar.is_icon_installed() {
+        log::info!("TaskBarIcon successfully installed in system tray.");
+    } else {
+        log::error!("Failed to set taskbar icon.");
+    }
+
+    // --- Menu Bar Setup ---
+    // Main menu
+    let main_menu = Menu::builder()
+        .append_item(MenuId::Settings.into(), "Settings", "Open application settings")
+        .append_separator()
+        .append_item(MenuId::ScanQrCode.into(), "Scan QR Code\tCtrl+Shift+Q", "Scan QR code from screen")
+        .append_item(MenuId::ImportNodeFile.into(), "Import Node File", "Import node file")
+        .append_item(MenuId::New.into(), "New", "Create new node")
+        .append_separator()
+        .append_check_item(MenuId::RunNode.into(), "Run Node\tF5", "Run node client")
+        .append_check_item(MenuId::SystemProxy.into(), "System Proxy", "Use OverTLS as the system proxy")
+        .append_check_item(MenuId::Tun2proxy.into(), "Tun2proxy\tShift+F5", "Tun2proxy service")
+        .append_separator()
+        .append_item(MenuId::Quit.into(), "Quit\tCtrl+Q", "Quit the application")
+        .build();
+
+    // Nodes menu
+    let nodes_menu = Menu::builder()
+        .append_item(MenuId::ViewDetails.into(), "View Details", "View node details")
+        .append_item(MenuId::ExportNode.into(), "Export Node", "Export node")
+        .append_item(MenuId::ShowQrCode.into(), "Show QR Code", "Show QR code for node")
+        .append_separator()
+        .append_item(MenuId::Delete.into(), "Delete\tDel", "Delete node")
+        .append_separator()
+        .append_item(MenuId::Copy.into(), "Copy\tCtrl+C", "Copy node")
+        .append_item(MenuId::Paste.into(), "Paste\tCtrl+V", "Paste node")
+        .build();
+
+    let refresh_info = "Refresh all subscription URLs in the background";
+    let auto_info = "Toggle automatic subscription refresh";
+    // Subscriptions menu
+    let subscriptions_menu = Menu::builder()
+        .append_item(MenuId::Subscribe.into(), "Subscribe", "Add a new subscription URL")
+        .append_item(MenuId::EditSubscription.into(), "Edit", "Edit the selected subscription URL")
+        .append_item(MenuId::DeleteSubscription.into(), "Delete", "Delete the selected subscription")
+        .append_separator()
+        .append_item(MenuId::RefreshSubscriptions.into(), "Refresh all subscriptions", refresh_info)
+        .append_separator()
+        .append_check_item(MenuId::AutoRefreshSubscriptions.into(), "Refresh automatically", auto_info)
+        .build();
+
+    // Help menu
+    let help_menu = Menu::builder()
+        .append_item(MenuId::About.into(), "About", "Show about dialog")
+        .build();
+
+    let menubar = MenuBar::builder()
+        .append(main_menu, "Main")
+        .append(nodes_menu, "Nodes")
+        .append(subscriptions_menu, "Subscriptions")
+        .append(help_menu, "Help")
+        .build();
+    frame.set_menu_bar(menubar);
+
+    // ensure the menu items have the correct checked state at startup as well
+    if let Some(mbar) = frame.get_menu_bar() {
+        sync_menu(&mbar, &cfg_clone);
+    }
+
+    let proxy_safety_toolbar = toolbar_opt;
+    let proxy_safety_cfg = cfg_clone.clone();
+
+    // A shared UI timer handles status refresh, activation polling,
+    // toolbar/menu sync, and autosave checks.
+    let status_timer = Timer::new(&frame);
+    status_timer.on_tick(move |_evt| {
+        if shutting_down_for_status.load(Ordering::Acquire) {
+            return;
+        }
+        if let Some(act_rx) = &activation_rx
+            && act_rx.try_recv().is_ok()
+        {
+            restore_main_window(&frame_for_refresh_ui);
+        }
+
+        if core::is_global_node_running()
+            && let Some(overtls_cfg) = core::get_global_running_node()
+            && let Some(listen_address) = overtls_cfg.listen_address()
+        {
+            let addr = listen_address.addr;
+            status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
+        } else {
+            status_bar_clone.set_status_text("Ready", 0);
+        }
+
+        let proxy = if systemproxy::SystemProxy::is_enabled() { "ON" } else { "OFF" };
+        status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
+        status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
+
+        while let Ok(show_dialog) = refresh_request_rx.try_recv() {
+            refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
+        }
+        while let Ok(result) = refresh_result_rx.try_recv() {
+            apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
+        }
+
+        if let Some(toolbar) = &proxy_safety_toolbar {
+            sync_toolbar(toolbar);
+        }
+        if let Some(mbar) = frame_for_refresh_ui.get_menu_bar() {
+            sync_menu(&mbar, &proxy_safety_cfg);
+        }
+
+        if settings::is_dirty()
+            && let Some(servers) = model_for_autosave.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+                list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+            })
+        {
+            let mut cfg_lock = cfg_for_autosave.lock().unwrap();
+            cfg_lock.servers = Some(servers);
+            if settings::save_settings(&cfg_lock) {
+                log::debug!("Auto-saved dirty settings.");
+            } else {
+                log::error!("Auto-save of dirty settings failed.");
+            }
+        }
+    });
+    status_timer.start(1000, false);
+    *ui_timer_holder_clone.borrow_mut() = Some(status_timer);
+
+    let cfg_for_auto_refresh = cfg_clone.clone();
+    let refresh_request_tx_for_auto = refresh_request_tx.clone();
+    std::thread::spawn(move || {
+        let mut next_refresh = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+
+            let (enabled, interval) = {
+                let cfg = cfg_for_auto_refresh.lock().unwrap();
+                (
+                    cfg.subscription_auto_refresh.unwrap_or(false),
+                    std::time::Duration::from_secs(cfg.subscription_refresh_interval_minutes.unwrap_or(10).max(1) * 60),
+                )
+            };
+
+            if !enabled {
+                next_refresh = None;
+                continue;
+            }
+
+            let deadline = next_refresh.get_or_insert_with(|| std::time::Instant::now() + interval);
+            if std::time::Instant::now() < *deadline {
+                continue;
+            }
+
+            *deadline = std::time::Instant::now() + interval;
+            if refresh_request_tx_for_auto.send(false).is_err() {
+                break;
+            }
+        }
+    });
+
+    let subscriptions_list_handle: Rc<RefCell<Option<DataViewListCtrl>>> = Rc::new(RefCell::new(None));
+    let selected_subscription_row: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
+    let notebook_ref: Rc<RefCell<Option<Notebook>>> = Rc::new(RefCell::new(None));
+
+    // Dynamically enable/disable Node menu items when the menu bar opens
+    // Disable actions that require a selection if none is present
+    let frame_for_menu_open = frame;
+    let notebook_for_menu_open = notebook_ref.clone();
+    let subscriptions_list_handle_for_open = subscriptions_list_handle.clone();
+    let cfg_on_menu_opened = cfg_clone.clone();
+    frame.on_menu_opened(move |event: wxdragon::MenuEventData| {
+        // Only handle the menubar case here; popup menus use a different path
+        if event.is_popup() {
+            log::info!("Popup menu opened, skipping dynamic enable/disable.");
+            return;
+        }
+        if let Some(mbar) = frame_for_menu_open.get_menu_bar() {
+            let has_sel = selection_ctx::has_pending_details();
+            // Items that require a selection
+            let gated = [
+                MenuId::ViewDetails,
+                MenuId::ExportNode,
+                MenuId::ShowQrCode,
+                MenuId::Delete,
+                MenuId::Copy,
+            ];
+            for id in gated {
+                // Enable only if there is a pending selection
+                let _ = mbar.enable_item(id.into(), has_sel);
+            }
+
+            let sub_has_sel = if let Some(notebook) = &*notebook_for_menu_open.borrow() {
+                notebook.selection() == 1
+                    && subscriptions_list_handle_for_open
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|list| list.get_selected_row().is_some())
+            } else {
+                false
+            };
+            let _ = mbar.enable_item(MenuId::EditSubscription.into(), sub_has_sel);
+            let _ = mbar.enable_item(MenuId::DeleteSubscription.into(), sub_has_sel);
+            let _ = mbar.enable_item(MenuId::RefreshSubscriptions.into(), !is_refresh_in_progress());
+
+            // also update the checked state of our three toggle actions
+            sync_menu(&mbar, &cfg_on_menu_opened);
+        }
+    });
+
+    let model_for_menu = model.clone();
+    let cfg_for_menu = cfg_clone.clone();
+    let notebook_for_menu = notebook_ref.clone();
+    let subscriptions_list_handle_for_menu = subscriptions_list_handle.clone();
+    let selected_subscription_row_for_menu = selected_subscription_row.clone();
+    let refresh_request_tx_for_menu = refresh_request_tx.clone();
+    frame.on_menu(move |event| {
+        let id = event.get_id();
+        if id == MenuId::Quit as i32 {
+            frame.close(true);
+            return;
+        }
+
+        // special handling for the three toggle tools
+        if id == MenuId::RunNode as Id {
+            // UI-level behavior: when no node is selected, switch to the Nodes page.
+            // Keep this here so core remains focused on service start logic only.
+            if !selection_ctx::has_pending_details()
+                && let Some(notebook) = *notebook_for_menu.borrow()
+            {
+                notebook.set_selection(0);
+            }
+
+            if core::is_global_node_running() {
+                let _ = core::stop_running_node();
+            } else {
+                core::start_selected_node(&frame, &model_for_menu, &cfg_for_menu);
+            }
+        } else if id == MenuId::Tun2proxy as Id {
+            if !run_as::is_elevated() {
+                // action not allowed without admin rights
+                let dlg = MessageDialog::builder(&frame, "Tun2Proxy requires administrator privileges.", "Permission Denied")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+                    .build();
+                let _ = dlg.show_modal();
+                dlg.destroy();
+            } else if core::is_tun2proxy_running() {
+                let _ = core::stop_tun2proxy_only();
+            } else {
+                core::start_tun2proxy_only(&frame, &cfg_for_menu);
+            }
+        } else if id == MenuId::Subscribe as i32 {
+            prompt_add_subscription(&frame, &cfg_for_menu, &subscriptions_list_handle_for_menu, &notebook_for_menu);
+        } else if id == MenuId::EditSubscription as i32 {
+            if let Some(row) = *selected_subscription_row_for_menu.borrow() {
+                prompt_edit_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+            }
+        } else if id == MenuId::DeleteSubscription as i32 {
+            if let Some(row) = *selected_subscription_row_for_menu.borrow() {
+                prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+            }
+        } else if id == MenuId::RefreshSubscriptions as i32 {
+            let _ = refresh_request_tx_for_menu.send(true);
+        } else if id == MenuId::AutoRefreshSubscriptions as i32 {
+            let enabled = !cfg_for_menu.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
+            {
+                let mut cfg_lock = cfg_for_menu.lock().unwrap();
+                cfg_lock.subscription_auto_refresh = Some(enabled);
+                settings::save_settings(&cfg_lock);
+            }
+            if let Some(mbar) = frame.get_menu_bar() {
+                mbar.check_item(MenuId::AutoRefreshSubscriptions.into(), enabled);
+            }
+        } else if id == MenuId::Delete as i32 {
+            if let Some(notebook) = *notebook_for_menu.borrow()
+                && notebook.selection() == 1
+                && let Some(row) = *selected_subscription_row_for_menu.borrow()
+            {
+                prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
+            } else {
+                menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
+            }
+        } else {
+            menu_actions::handle_menu_command(&frame, &model_for_menu, id, &cfg_for_menu);
+        }
+
+        // each time we're about to handle something, refresh toolbar state
+        if let Some(tb) = &toolbar_opt {
+            sync_toolbar(tb);
+        }
+        // and keep the menubar entries checked appropriately as well
+        if let Some(mbar) = frame.get_menu_bar() {
+            sync_menu(&mbar, &cfg_for_menu);
+        }
+    });
+
+    // clone config for use in close/destroy handlers
+    let cfg_for_close = cfg_clone.clone();
+    let shutting_down_for_close = shutting_down_for_ui.clone();
+
+    frame.on_close(move |evt| {
+        if let wxdragon::WindowEventData::General(event) = &evt {
+            // Record current position/size before hiding – otherwise the window will be
+            // hidden and get_position() returns (-1,-1) which ends up in settings.
+            let pos = frame.get_position();
+            let size = frame.get_size();
+            // only store positive coordinates; hide/minimized windows return (-1,-1)
+            if pos.x >= 0 && pos.y >= 0 && size.width > 0 && size.height > 0 {
+                let win = WindowConfig::new(pos, size);
+                cfg_for_close.lock().unwrap().window = Some(win);
+            } else {
+                log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
+            }
+
+            if !event.can_veto() {
+                shutting_down_for_close.store(true, Ordering::Release);
+                systemproxy::SystemProxy::stop().ok();
+                let _ = core::stop_all_services();
+            }
+
+            if event.can_veto() {
+                // If the close event is the window's default behavior (not from the taskbar menu or main menu)
+                // we veto the close and hide the window instead
+                log::debug!("Close event vetoed, hiding window instead of closing.");
+                event.veto();
+                do_hide_frame(&frame);
+            }
+        }
+    });
+
+    let model_for_destroy = model.clone();
+    let cfg_for_destroy = cfg_clone.clone();
+    let shutting_down_for_destroy = shutting_down_for_ui.clone();
+    frame.on_destroy(move |_data| {
+        shutting_down_for_destroy.store(true, Ordering::Release);
+
+        // Persist current servers from the model back to settings
+        if let Some(servers) = model_for_destroy.with_userdata_mut::<Rc<RefCell<ServerList>>, Vec<ServerNode>>(|list_rc| {
+            list_rc.borrow().nodes.iter().map(|rc| rc.borrow().clone()).collect()
+        }) {
+            cfg_for_destroy.lock().unwrap().servers = Some(servers);
+        }
+
+        // Clean up the TaskBarIcon, it's important to call destroy() to remove the icon from the system tray,
+        // or we can't exit the application main loop.
+        taskbar.destroy();
+
+        // Clean up the tray icon menu to release rust closures attached to menu items
+        tray_icon_menu.destroy_menu();
+    });
+
+    // --- Main Panel Layout ---
+    let main_panel = Panel::builder(&frame).build();
+
+    let notebook = Notebook::builder(&main_panel).build();
+    *notebook_ref.borrow_mut() = Some(notebook);
+    let nodes_panel = dataview::create_data_view_panel(&notebook, &model, &frame, &cfg_clone);
+    let subscriptions = cfg_clone.lock().unwrap().get_subscriptions();
+    let subscriptions_panel = create_subscriptions_panel(&notebook, &subscriptions, &subscriptions_list_handle, &selected_subscription_row);
+    notebook.add_page(&nodes_panel, "Nodes", true, None);
+    notebook.add_page(&subscriptions_panel, "Subscriptions", false, None);
+
+    // Integrate LogView module (bottom pane)
+    let log_color_output = cfg_clone
+        .lock()
+        .ok()
+        .and_then(|c| c.logging.clone())
+        .and_then(|ls| ls.log_color_output)
+        .unwrap_or_default();
+    let logview_panel = logview::LogViewPanel::new(&main_panel, log_color_output);
+    // Register the TextCtrl in UI-thread-local storage for callbacks
+    logview::LOG_TEXT_CTRL.with(|cell| {
+        *cell.borrow_mut() = Some(logview_panel.text_ctrl);
+    });
+
+    // Use AUI manager to layout the notebook and log view as dockable panes.
+    let mgr = AuiManager::builder(&main_panel).build();
+    mgr.add_pane_with_info(
+        &notebook,
+        AuiPaneInfo::new()
+            .with_name("main_notebook")
+            .with_caption("Main")
+            .caption_visible(false)
+            .center_pane()
+            .pane_border(false)
+            .dockable(true)
+            .movable(false)
+            .floatable(false)
+            .best_size(800, 400),
+    );
+    mgr.add_pane_with_info(
+        &logview_panel.panel,
+        AuiPaneInfo::new()
+            .with_name("log_view")
+            .with_caption("Log View")
+            .caption_visible(true)
+            .bottom()
+            .layer(1)
+            .position(0)
+            .pane_border(true)
+            .gripper(false)
+            .floatable(true)
+            .dockable(true)
+            .movable(true)
+            .min_size(400, 160)
+            .best_size(800, 200)
+            .close_button(false)
+            .maximize_button(true),
+    );
+    mgr.update();
+
+    let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    main_sizer.add(&main_panel, 1, SizerFlag::Expand | SizerFlag::All, 0);
+    frame.set_sizer(main_sizer, true);
+
+    // Pump log_queue into the LogView TextCtrl using UI-thread callbacks
+    {
+        let ui_log_queue = log_queue.clone();
+        let shutting_down_for_logs = shutting_down_for_ui.clone();
+        std::thread::spawn(move || {
+            // Throttle updates a bit to avoid overwhelming the UI
+            const SLEEP_MS: u64 = 120;
+            const MAX_LOG_LINES: usize = 1000;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(SLEEP_MS));
+
+                if shutting_down_for_logs.load(Ordering::Acquire) {
+                    break;
+                }
+
+                // Drain any pending log tuples into a local batch
+                let mut batch: Vec<(log::Level, String, String)> = Vec::new();
+                if let Ok(mut q) = ui_log_queue.lock()
+                    && !q.is_empty()
+                {
+                    batch.extend(q.drain(..));
+                }
+
+                if batch.is_empty() {
+                    continue;
+                }
+
+                // Pre-format text in the background thread; Strings are Send
+                let log_lines: Vec<(log::Level, String)> = batch
+                    .into_iter()
+                    .map(|(level, module, msg)| {
+                        // Example: "[2025-06-01T12:34:56Z INFO module] message\n"
+                        let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                        let line = format!("[{ts} {:<5} {}] {}\n", level, module, msg);
+                        (level, line)
+                    })
+                    .collect();
+
+                // Apply text update on the UI thread using a ring buffer (stable trimming)
+                // Respect user's auto-scroll preference from settings
+                let cfg_for_autoscroll = cfg_clone.clone();
+                let shutting_down_for_callback = shutting_down_for_logs.clone();
+                wxdragon::call_after(Box::new(move || {
+                    if shutting_down_for_callback.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let auto_scroll = cfg_for_autoscroll
+                        .lock()
+                        .ok()
+                        .and_then(|c| c.logging.clone())
+                        .and_then(|ls| ls.log_auto_scroll)
+                        .unwrap_or_default();
+                    logview::ui_append_logs(log_lines, MAX_LOG_LINES, auto_scroll);
+                }));
+            }
+        });
+    }
+
+    frame.show(true);
 }
 
 pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {
