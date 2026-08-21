@@ -1,6 +1,6 @@
 [package]
 name = "overtls-gui"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["@ssrlive"]
 description = "A GUI wrapper for overtls proxy suits powered by wxDragon"
