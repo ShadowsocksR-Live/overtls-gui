@@ -102,6 +102,18 @@ fn install_rustls_crypto_provider() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
+const LOG_QUEUE_LIMIT: usize = 4096;
+const LOG_BATCH_LIMIT: usize = 256;
+
+fn trim_log_queue(queue: &mut Vec<(log::Level, String, String)>, max_len: usize) {
+    if queue.len() <= max_len {
+        return;
+    }
+
+    let drop_count = queue.len().saturating_sub(max_len);
+    queue.drain(..drop_count);
+}
+
 fn main() -> std::io::Result<()> {
     // #[cfg(debug_assertions)]
     // env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -135,7 +147,9 @@ fn main() -> std::io::Result<()> {
     let shutting_down = Arc::new(AtomicBool::new(false));
     std::thread::spawn(move || {
         for msg in logging_rx {
-            log_queue_thread.lock().unwrap().push(msg);
+            let mut queue = log_queue_thread.lock().unwrap();
+            trim_log_queue(&mut queue, LOG_QUEUE_LIMIT.saturating_sub(1));
+            queue.push(msg);
         }
     });
 
@@ -747,12 +761,13 @@ fn on_wxdragon_init(
                     break;
                 }
 
-                // Drain any pending log tuples into a local batch
+                // Drain only a bounded chunk each tick so a log flood cannot starve the UI thread.
                 let mut batch: Vec<(log::Level, String, String)> = Vec::new();
-                if let Ok(mut q) = ui_log_queue.lock()
-                    && !q.is_empty()
-                {
-                    batch.extend(q.drain(..));
+                if let Ok(mut q) = ui_log_queue.lock() {
+                    let drain_count = q.len().min(LOG_BATCH_LIMIT);
+                    if drain_count > 0 {
+                        batch.extend(q.drain(..drain_count));
+                    }
                 }
 
                 if batch.is_empty() {
