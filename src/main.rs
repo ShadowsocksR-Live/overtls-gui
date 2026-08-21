@@ -157,7 +157,7 @@ fn main() -> std::io::Result<()> {
 }
 
 fn on_wxdragon_init(
-    _app: App,
+    app: App,
     cfg: AppSettingsRef,
     activation_listener: Option<std::net::TcpListener>,
     shutting_down: Arc<AtomicBool>,
@@ -598,6 +598,13 @@ fn on_wxdragon_init(
         }
     });
 
+    let os_shuting_down = Arc::new(AtomicBool::new(false));
+    let os_shuting_down_1 = os_shuting_down.clone();
+    app.on_query_end_session(move |_evt| {
+        log::info!("OS is shutting down, stopping services.");
+        os_shuting_down_1.store(true, Ordering::Release);
+    });
+
     // clone config for use in close/destroy handlers
     let cfg_for_close = cfg_clone.clone();
     let shutting_down_for_close = shutting_down_for_ui.clone();
@@ -616,18 +623,26 @@ fn on_wxdragon_init(
                 log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
             }
 
-            if !event.can_veto() {
+            let clear_up_env = || {
                 shutting_down_for_close.store(true, Ordering::Release);
                 systemproxy::SystemProxy::stop().ok();
                 let _ = core::stop_all_services();
-            }
+            };
 
             if event.can_veto() {
+                if os_shuting_down.load(Ordering::Acquire) {
+                    log::info!("OS is shutting down, allowing window to close.");
+                    clear_up_env();
+                    return;
+                }
                 // If the close event is the window's default behavior (not from the taskbar menu or main menu)
                 // we veto the close and hide the window instead
                 log::debug!("Close event vetoed, hiding window instead of closing.");
                 event.veto();
                 do_hide_frame(&frame);
+            } else {
+                log::debug!("Close event cannot be vetoed, allowing window to close.");
+                clear_up_env();
             }
         }
     });

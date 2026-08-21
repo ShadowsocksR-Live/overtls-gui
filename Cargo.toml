@@ -54,12 +54,12 @@ url = { version = "2.5.8", default-features = false, features = [
     "std",
     "serde",
 ] }
-uuid = { version = "1.24.0", features = ["v4"] }
-wxdragon = { version = "0.9.18", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "13ce543", features = [
+uuid = { version = "1.24.1", features = ["v4"] }
+wxdragon = { version = "0.9.18", default-features = false, git = "https://github.com/AllenDang/wxDragon.git", rev = "8781d01", features = [
     "aui",
     "stc",
 ] }
-zedbar = "0.4.1"
+zedbar = "0.5.1"
 
 [build-dependencies]
 chrono = "0.4.45"
