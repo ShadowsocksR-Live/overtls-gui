@@ -128,7 +128,7 @@ fn main() -> std::io::Result<()> {
     }
 
     // --- single-instance detection / activation -----------------------------
-    let Ok(activation_listener) = crate::single_instance::acquire() else {
+    let Ok(activation_listener) = crate::single_instance::acquire(49567) else {
         // an Err return signals that another instance was present and already
         // notified; just exit quietly.
         return Ok(());
@@ -752,7 +752,7 @@ fn on_wxdragon_init(
         let shutting_down_for_logs = shutting_down_for_ui.clone();
         std::thread::spawn(move || {
             // Throttle updates a bit to avoid overwhelming the UI
-            const SLEEP_MS: u64 = 120;
+            const SLEEP_MS: u64 = 1000;
             const MAX_LOG_LINES: usize = 1000;
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(SLEEP_MS));
@@ -856,6 +856,7 @@ fn sync_menu(mb: &wxdragon::menus::MenuBar, cfg: &std::sync::Arc<std::sync::Mute
 
 fn restore_main_window(frame: &Frame) {
     frame.show(true);
+    // frame.iconize(true);
     frame.iconize(false);
     frame.raise();
     frame.set_focus();

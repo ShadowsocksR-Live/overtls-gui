@@ -3,17 +3,13 @@ use std::net::{TcpListener, TcpStream};
 
 /// TCP port that the primary instance listens on for activation requests.
 ///
-/// The port number is arbitrary but should be unlikely to conflict with other
-/// software.  We bind to `127.0.0.1` only so it is not exposed off-host.
-pub const ACTIVATION_PORT: u16 = 49567;
-
 /// Send a simple activation payload to whatever is listening on
 /// `ACTIVATION_PORT`.
 ///
 /// This is a best-effort operation; we ignore any errors because the most we
 /// can do in this context is let the other instance potentially raise itself.
-pub fn notify_existing_instance() {
-    if let Ok(mut s) = TcpStream::connect(("127.0.0.1", ACTIVATION_PORT)) {
+pub fn notify_existing_instance(listening_port: u16) {
+    if let Ok(mut s) = TcpStream::connect(("127.0.0.1", listening_port)) {
         let _ = s.write_all(b"activate");
     }
 }
@@ -28,13 +24,13 @@ pub fn notify_existing_instance() {
 ///
 /// If another instance is detected via the port, this function sends the
 /// activation message and returns `Err` so that the caller can exit quietly.
-pub fn acquire() -> std::io::Result<Option<TcpListener>> {
+pub fn acquire(listening_port: u16) -> std::io::Result<Option<TcpListener>> {
     // try binding the activation port first.  failure with AddrInUse means a
     // running instance already has it.
-    let listener_opt = match TcpListener::bind(("127.0.0.1", ACTIVATION_PORT)) {
+    let listener_opt = match TcpListener::bind(("127.0.0.1", listening_port)) {
         Ok(l) => Some(l),
         Err(e) if e.kind() == ErrorKind::AddrInUse => {
-            notify_existing_instance();
+            notify_existing_instance(listening_port);
             std::thread::sleep(std::time::Duration::from_millis(300)); // give the other instance a moment to wake up and raise itself
             return Err(std::io::Error::other("another instance is running"));
         }
