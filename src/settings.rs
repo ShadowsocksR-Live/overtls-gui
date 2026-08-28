@@ -382,6 +382,9 @@ pub struct AppSettings {
     pub subscription_refresh_interval_minutes: Option<u64>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub single_instance_port: Option<u16>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscription_auto_refresh: Option<bool>,
 }
 

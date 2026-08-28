@@ -128,7 +128,12 @@ fn main() -> std::io::Result<()> {
     }
 
     // --- single-instance detection / activation -----------------------------
-    let Ok(activation_listener) = crate::single_instance::acquire(49567) else {
+    let activation_port = cfg
+        .lock()
+        .unwrap()
+        .single_instance_port
+        .unwrap_or(crate::single_instance::DEFAULT_SINGLE_INSTANCE_LISTEN_PORT);
+    let Ok(activation_listener) = crate::single_instance::acquire(activation_port) else {
         // an Err return signals that another instance was present and already
         // notified; just exit quietly.
         return Ok(());

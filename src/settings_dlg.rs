@@ -82,9 +82,10 @@ pub fn settings_dlg(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) {
         let mut cfg_lock = cfg.lock().unwrap();
 
         // Common
-        let (run_as_admin_checked, refresh_interval_minutes) = common_read();
+        let (run_as_admin_checked, refresh_interval_minutes, single_instance_port) = common_read();
         cfg_lock.run_as_admin = if run_as_admin_checked { Some(true) } else { None };
         cfg_lock.subscription_refresh_interval_minutes = Some(refresh_interval_minutes);
+        cfg_lock.single_instance_port = Some(single_instance_port);
 
         // Local Server
         let new_local: LocalServerSettings = local_read();
@@ -256,7 +257,7 @@ fn create_local_settings_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>
     (panel, reader)
 }
 
-fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (Panel, impl Fn() -> (bool, u64) + 'static) {
+fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (Panel, impl Fn() -> (bool, u64, u16) + 'static) {
     let panel = Panel::builder(parent).build();
 
     // Common settings: run as admin and subscription refresh interval
@@ -285,19 +286,52 @@ fn create_common_tab(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>) -> (P
         .with_size(Size::new(160, -1))
         .build();
 
-    let grid = FlexGridSizer::builder(2, 2).with_vgap(20).with_hgap(16).build();
+    let single_instance_port_label = StaticText::builder(&panel)
+        .with_label("Single instance listening port:")
+        .with_style(StaticTextStyle::AlignRight)
+        .with_size(label_size)
+        .build();
+
+    let single_instance_port_input = SpinCtrl::builder(&panel)
+        .with_initial_value(
+            cfg.lock()
+                .unwrap()
+                .single_instance_port
+                .unwrap_or(crate::single_instance::DEFAULT_SINGLE_INSTANCE_LISTEN_PORT) as i32,
+        )
+        .with_min_value(1)
+        .with_max_value(u16::MAX as i32)
+        .with_size(Size::new(160, -1))
+        .build();
+
+    let grid = FlexGridSizer::builder(3, 2).with_vgap(20).with_hgap(16).build();
     grid.add(&spacer_label, 0, SizerFlag::AlignRight | SizerFlag::AlignCenterVertical, 0);
     grid.add(&run_admin_checkbox, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
     let flag = SizerFlag::AlignRight | SizerFlag::AlignCenterVertical;
     grid.add(&refresh_interval_label, 0, flag, 0);
     grid.add(&refresh_interval_input, 0, SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical, 0);
+    grid.add(&single_instance_port_label, 0, flag, 0);
+    grid.add(
+        &single_instance_port_input,
+        0,
+        SizerFlag::AlignLeft | SizerFlag::AlignCenterVertical,
+        0,
+    );
 
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     sizer.add_sizer(&grid, 0, SizerFlag::Expand | SizerFlag::All, 16);
     panel.set_sizer(sizer, true);
 
-    // Reader returns whether Run as administrator is checked and the subscription refresh interval
-    let reader = { move || (run_admin_checkbox.get_value(), refresh_interval_input.value() as u64) };
+    // Reader returns the values currently shown on the Common tab.
+    let reader = {
+        move || {
+            (
+                run_admin_checkbox.get_value(),
+                refresh_interval_input.value() as u64,
+                single_instance_port_input.value() as u16,
+            )
+        }
+    };
 
     (panel, reader)
 }

@@ -1,10 +1,12 @@
 use std::io::{ErrorKind, Write};
 use std::net::{TcpListener, TcpStream};
 
+pub const DEFAULT_SINGLE_INSTANCE_LISTEN_PORT: u16 = 48567;
+
 /// TCP port that the primary instance listens on for activation requests.
 ///
 /// Send a simple activation payload to whatever is listening on
-/// `ACTIVATION_PORT`.
+/// `DEFAULT_SINGLE_INSTANCE_LISTEN_PORT`.
 ///
 /// This is a best-effort operation; we ignore any errors because the most we
 /// can do in this context is let the other instance potentially raise itself.
