@@ -23,7 +23,6 @@ on Linux, Windows, and macOS.
 ![Main Window](screenshots/img1.png)
 
 ![Subscription Management](screenshots/img3.png)
-
 ![Settings Dialog](screenshots/img2.png)
 
 ## Installation & Build
