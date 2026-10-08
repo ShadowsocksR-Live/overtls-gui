@@ -341,7 +341,12 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
 
     let label_size = Size::new(150, -1);
 
-    let default_socks5_addr = tun2proxy_settings.proxy.addr.to_string();
+    let default_socks5_addr = tun2proxy_settings
+        .proxy
+        .addr
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "127.0.0.1:1080".to_string());
 
     // Target SOCKS5 Address:Port
     let socks5_addr_label = StaticText::builder(&panel)
@@ -457,11 +462,7 @@ fn create_tun2proxy_tab(parent: &dyn WxWidget, tun2proxy_settings: &tun2proxy::A
 
             // Apply Target SOCKS5 address:port into proxy settings
             let target_addr: std::net::SocketAddr = socks5_addr_input.get_value().parse().unwrap();
-            let proxy = tun2proxy::ArgProxy {
-                proxy_type: tun2proxy::ProxyType::Socks5,
-                addr: target_addr,
-                ..Default::default()
-            };
+            let proxy = format!("socks5://{target_addr}").as_str().try_into().unwrap();
 
             // parse bypass list from multiline text area
             let bypass_vec = bypass_input

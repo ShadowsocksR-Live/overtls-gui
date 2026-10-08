@@ -2,7 +2,6 @@ use crate::{
     ServerNode, selection_ctx,
     settings::{AnyTlsNode, AppSettings, AppSettingsRef, LocalServerSettings, NodeType, OverTlsConfig, OverTlsNode},
 };
-use anytls::{ClientArgs, runner_execute};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use wxdragon::prelude::*;
@@ -32,19 +31,13 @@ fn start_anytls_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>, node:
     let settings = cfg.lock().unwrap().clone();
     let local_settings = settings.local_settings.unwrap_or_default();
 
-    let url = match String::from(&any_tls_node.config).parse() {
-        Ok(value) => value,
-        Err(error) => {
-            show_proxy_error(parent, &format!("Invalid AnyTLS node address: {error}"), "Error");
-            return;
-        }
+    let Some(listen_parameters) = build_listen_parameters_from_local_settings(&local_settings) else {
+        show_proxy_error(parent, "Invalid local SOCKS5 listener settings.", "Error");
+        return;
     };
-
-    let listen_parameters = build_listen_parameters_from_local_settings(&local_settings);
     any_tls_node.listen = Some(listen_parameters.clone());
 
-    let mut args = <ClientArgs as anytls::ClapParser>::parse_from(["anytls-client"]);
-    args.url = Some(url);
+    let mut args = any_tls_node.config.clone();
     args.listen = listen_parameters;
 
     let token = overtls::CancellationToken::new();
@@ -59,7 +52,7 @@ fn start_anytls_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>, node:
             .enable_all()
             .build()
             .map_err(std::io::Error::other)
-            .and_then(|runtime| runtime.block_on(async { runner_execute(token.clone(), args).await.map_err(std::io::Error::other) }));
+            .and_then(|runtime| runtime.block_on(anytls::run_client(token.clone(), args, None)));
         if let Err(error) = &result {
             log::error!("AnyTLS unexpectedly exited with error: {error}");
         }
@@ -78,26 +71,43 @@ fn start_anytls_only(parent: &dyn WxWidget, cfg: &Arc<Mutex<AppSettings>>, node:
     log::info!("AnyTLS '{title}' is starting...");
 }
 
-pub fn build_listen_parameters_from_local_settings(local_settings: &LocalServerSettings) -> anytls::ProxyParameters {
-    let addr = (local_settings.listen_host.clone(), local_settings.listen_port).into();
-    let credentials = match (local_settings.listen_user.as_ref(), local_settings.listen_password.as_ref()) {
-        (Some(user), Some(pass)) if !user.is_empty() || !pass.is_empty() => Some(anytls::UserKey::new(user.clone(), pass.clone())),
-        _ => None,
+pub fn build_listen_proxy_url(local_settings: &LocalServerSettings) -> Option<String> {
+    let mut url = url::Url::parse("mixed://127.0.0.1:1080").ok()?;
+    let host = if local_settings.listen_host.contains(':') && !local_settings.listen_host.starts_with('[') {
+        format!("[{}]", local_settings.listen_host)
+    } else {
+        local_settings.listen_host.clone()
     };
-    anytls::ProxyParameters::new(anytls::ProxyType::Socks5, addr, credentials)
+    url.set_host(Some(&host)).ok()?;
+    url.set_port(Some(local_settings.listen_port)).ok()?;
+    let username = local_settings.listen_user.as_deref().unwrap_or_default();
+    let password = local_settings.listen_password.as_deref().unwrap_or_default();
+    if !username.is_empty() || !password.is_empty() {
+        url.set_username(username).ok()?;
+        url.set_password(Some(password)).ok()?;
+    }
+    Some(url.to_string())
 }
 
-pub fn merge_local_settings_to_overtls_node_config(local_settings: &LocalServerSettings, ot_node_config: &mut OverTlsConfig) {
+pub fn build_listen_parameters_from_local_settings(local_settings: &LocalServerSettings) -> Option<anytls::ProxyParameters> {
+    build_listen_proxy_url(local_settings)?.as_str().try_into().ok()
+}
+
+pub fn merge_local_settings_to_overtls_node_config(
+    local_settings: &LocalServerSettings,
+    ot_node_config: &mut OverTlsConfig,
+) -> Result<(), String> {
     if let Some(client) = &mut ot_node_config.client {
-        let listen_parameters = build_listen_parameters_from_local_settings(local_settings);
-        client.listen_host = listen_parameters.addr.host().to_string();
-        client.listen_port = listen_parameters.addr.port();
-        client.listen_user = listen_parameters.credentials.as_ref().map(|c| c.username.clone());
-        client.listen_password = listen_parameters.credentials.as_ref().map(|c| c.password.clone());
+        let listen_url = build_listen_proxy_url(local_settings).ok_or("Invalid local SOCKS5 listener settings")?;
+        client.listen = listen_url
+            .as_str()
+            .try_into()
+            .map_err(|_| "Invalid local SOCKS5 listener URL".to_string())?;
 
         client.pool_max_size = Some(local_settings.pool_max_size);
         client.cache_dns = local_settings.cache_dns;
     }
+    Ok(())
 }
 
 pub fn cook_tun2proxy_config(settings: &crate::settings::AppSettings, running_node: Option<&ServerNode>) -> Option<tun2proxy::Args> {
@@ -119,39 +129,13 @@ pub fn cook_tun2proxy_config(settings: &crate::settings::AppSettings, running_no
             // does not go through the tunnel
             result.bypass(remote_server_ip.ip().into());
 
-            let client_host = normalize_connect_host(&client.listen_host);
-            // convert host:port into a network SocketAddr using string parsing
-            let listen_addr: std::net::SocketAddr = format!("{}:{}", client_host, client.listen_port).parse().ok()?;
-
-            let mut proxy = tun2proxy::ArgProxy {
-                proxy_type: tun2proxy::ProxyType::Socks5,
-                addr: listen_addr,
-                ..Default::default()
-            };
-
-            proxy.credentials = match (
-                &client.listen_user.as_ref().map_or("", |v| v),
-                &client.listen_password.as_ref().map_or("", |v| v),
-            ) {
-                (u, p) if u.is_empty() && p.is_empty() => None,
-                _ => Some(tun2proxy::UserKey::new(
-                    client.listen_user.clone().unwrap_or_default(),
-                    client.listen_password.clone().unwrap_or_default(),
-                )),
-            };
-
-            result.proxy(proxy);
+            result.proxy(client.listen.clone());
         } else if let Some(anytls_node) = running_node.downcast_ref::<AnyTlsNode>() {
-            result.bypass(std::net::SocketAddr::try_from(&anytls_node.config.server).ok()?.ip().into());
+            let server = anytls_node.config.server.as_ref()?;
+            result.bypass(std::net::SocketAddr::try_from(server).ok()?.ip().into());
 
             let listen_addr = running_node.listen_address()?;
-            let proxy = tun2proxy::ArgProxy {
-                proxy_type: tun2proxy::ProxyType::Socks5,
-                addr: std::net::SocketAddr::try_from(&listen_addr.addr).ok()?,
-                credentials: listen_addr.credentials,
-            };
-
-            result.proxy(proxy);
+            result.proxy(listen_addr);
         } else {
             log::warn!("Running node is neither OverTLS nor AnyTLS, cannot configure Tun2Proxy.");
             return None;
@@ -206,7 +190,10 @@ pub fn start_overtls_only(parent: &dyn WxWidget, model: &CustomDataViewTreeModel
     };
     let mut node: OverTlsConfig = over_tls_node.config.clone();
     let local_settings = cfg.lock().unwrap().clone().local_settings.clone().unwrap_or_default();
-    merge_local_settings_to_overtls_node_config(&local_settings, &mut node);
+    if let Err(error) = merge_local_settings_to_overtls_node_config(&local_settings, &mut node) {
+        show_proxy_error(parent, &error, "Invalid listener settings");
+        return;
+    }
     if let Err(e) = node.check_correctness(false) {
         show_proxy_error(parent, &format!("Node configuration is incorrect: {e}"), "Cannot start");
         return;
@@ -267,7 +254,7 @@ pub fn toggle_system_proxy(parent: &dyn WxWidget, cfg: &AppSettingsRef) {
         let cfg = cfg.lock().unwrap();
         let tmp = LocalServerSettings::default();
         let local_settings = cfg.local_settings.as_ref().unwrap_or(&tmp);
-        Some(build_listen_parameters_from_local_settings(local_settings))
+        build_listen_parameters_from_local_settings(local_settings)
     };
 
     let Some(listen) = listen else {
@@ -275,7 +262,11 @@ pub fn toggle_system_proxy(parent: &dyn WxWidget, cfg: &AppSettingsRef) {
         show_proxy_error(parent, msg, "Error");
         return;
     };
-    let Ok(listen_addr) = std::net::SocketAddr::try_from(listen.addr) else {
+    let Some(listen_addr) = listen
+        .addr
+        .as_ref()
+        .and_then(|address| std::net::SocketAddr::try_from(address).ok())
+    else {
         show_proxy_error(parent, "The proxy listen address is invalid.", "Error");
         return;
     };

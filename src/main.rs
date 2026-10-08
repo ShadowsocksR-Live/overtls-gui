@@ -87,7 +87,7 @@ use settings::{
     AppSettingsRef, MAIN_ICON, OVERTLS_ICON, PROXY_ICON, SETTINGS_ICON, TUN2PROXY_ICON, WindowConfig, create_bitmap_from_memory,
 };
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -185,7 +185,6 @@ fn on_wxdragon_init(
     let cfg_clone = cfg.clone();
     let shutting_down_for_ui = shutting_down.clone();
     let ui_timer_holder: Rc<RefCell<Option<Timer<Frame>>>> = Rc::new(RefCell::new(None));
-    let ui_timer_holder_clone = ui_timer_holder.clone();
 
     // Build model once from settings.servers
     let nodes = cfg_clone.lock().unwrap().servers.clone();
@@ -193,10 +192,14 @@ fn on_wxdragon_init(
     let nodes = nodes.unwrap_or_default().into_iter().map(|n| Rc::new(RefCell::new(n))).collect();
     let data = Rc::new(RefCell::new(ServerList { nodes }));
     let model = create_server_tree_model(data);
-    let (refresh_request_tx, refresh_request_rx) = std::sync::mpsc::channel::<bool>();
     let (refresh_result_tx, refresh_result_rx) = std::sync::mpsc::channel();
 
     let win_cfg = cfg_clone.lock().unwrap().window.as_ref().cloned().unwrap_or_default();
+    let log_view_height = win_cfg
+        .log_view_height
+        .and_then(|height| i32::try_from(height).ok())
+        .filter(|height| *height > 0)
+        .unwrap_or(200);
 
     let frame = Frame::builder()
         .with_title(settings::APP_TITLE)
@@ -229,7 +232,6 @@ fn on_wxdragon_init(
     let cfg_for_autosave = cfg_for_refresh_ui.clone();
     let model_for_autosave = model_for_refresh_ui.clone();
     let frame_for_refresh_ui = frame;
-    let refresh_result_tx_for_ui = refresh_result_tx.clone();
     let shutting_down_for_status = shutting_down_for_ui.clone();
 
     // --- ToolBar Setup ---
@@ -409,8 +411,7 @@ fn on_wxdragon_init(
             && let Some(overtls_cfg) = core::get_global_running_node()
             && let Some(listen_address) = overtls_cfg.listen_address()
         {
-            let addr = listen_address.addr;
-            status_bar_clone.set_status_text(&format!("Listening on mixed {addr}"), 0);
+            status_bar_clone.set_status_text(&format!("Listening on {listen_address}"), 0);
         } else {
             status_bar_clone.set_status_text("Ready", 0);
         }
@@ -419,9 +420,6 @@ fn on_wxdragon_init(
         status_bar_clone.set_status_text(&format!("System Proxy: {}", proxy), 1);
         status_bar_clone.set_status_text(&format!("TUN mode: {}", if core::is_tun2proxy_running() { "ON" } else { "OFF" }), 2);
 
-        while let Ok(show_dialog) = refresh_request_rx.try_recv() {
-            refresh_subscriptions(&cfg_for_refresh_ui, refresh_result_tx_for_ui.clone(), show_dialog);
-        }
         while let Ok(result) = refresh_result_rx.try_recv() {
             apply_refresh_result(&frame_for_refresh_ui, &cfg_for_refresh_ui, &model_for_refresh_ui, result);
         }
@@ -448,14 +446,18 @@ fn on_wxdragon_init(
         }
     });
     status_timer.start(1000, false);
-    *ui_timer_holder_clone.borrow_mut() = Some(status_timer);
+    *ui_timer_holder.borrow_mut() = Some(status_timer);
 
     let cfg_for_auto_refresh = cfg_clone.clone();
-    let refresh_request_tx_for_auto = refresh_request_tx.clone();
+    let refresh_result_tx_for_auto = refresh_result_tx.clone();
+    let shutting_down_for_auto_refresh = shutting_down_for_ui.clone();
     std::thread::spawn(move || {
         let mut next_refresh = None;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
+            if shutting_down_for_auto_refresh.load(Ordering::Acquire) {
+                break;
+            }
 
             let (enabled, interval) = {
                 let cfg = cfg_for_auto_refresh.lock().unwrap();
@@ -476,9 +478,7 @@ fn on_wxdragon_init(
             }
 
             *deadline = std::time::Instant::now() + interval;
-            if refresh_request_tx_for_auto.send(false).is_err() {
-                break;
-            }
+            refresh_subscriptions(&cfg_for_auto_refresh, refresh_result_tx_for_auto.clone(), false);
         }
     });
 
@@ -536,7 +536,7 @@ fn on_wxdragon_init(
     let notebook_for_menu = notebook_ref.clone();
     let subscriptions_list_handle_for_menu = subscriptions_list_handle.clone();
     let selected_subscription_row_for_menu = selected_subscription_row.clone();
-    let refresh_request_tx_for_menu = refresh_request_tx.clone();
+    let refresh_result_tx_for_menu = refresh_result_tx.clone();
     frame.on_menu(move |event| {
         let id = event.get_id();
         if id == MenuId::Quit as i32 {
@@ -583,7 +583,7 @@ fn on_wxdragon_init(
                 prompt_delete_subscription(&frame, &cfg_for_menu, row, &subscriptions_list_handle_for_menu);
             }
         } else if id == MenuId::RefreshSubscriptions as i32 {
-            let _ = refresh_request_tx_for_menu.send(true);
+            refresh_subscriptions(&cfg_for_menu, refresh_result_tx_for_menu.clone(), true);
         } else if id == MenuId::AutoRefreshSubscriptions as i32 {
             let enabled = !cfg_for_menu.lock().unwrap().subscription_auto_refresh.unwrap_or(false);
             {
@@ -627,6 +627,8 @@ fn on_wxdragon_init(
     // clone config for use in close/destroy handlers
     let cfg_for_close = cfg_clone.clone();
     let shutting_down_for_close = shutting_down_for_ui.clone();
+    let logview_panel_for_close = Rc::new(Cell::new(None::<Panel>));
+    let logview_panel_for_close_event = logview_panel_for_close.clone();
 
     frame.on_close(move |evt| {
         if let wxdragon::WindowEventData::General(event) = &evt {
@@ -635,11 +637,24 @@ fn on_wxdragon_init(
             let pos = frame.get_position();
             let size = frame.get_size();
             // only store positive coordinates; hide/minimized windows return (-1,-1)
+            let log_view_height = logview_panel_for_close_event
+                .get()
+                .map(|panel| panel.get_size().height)
+                .filter(|height| *height > 0)
+                .map(|height| height as usize);
+            let mut cfg_lock = cfg_for_close.lock().unwrap();
+            let previous_log_view_height = cfg_lock.window.as_ref().and_then(|window| window.log_view_height);
             if pos.x >= 0 && pos.y >= 0 && size.width > 0 && size.height > 0 {
-                let win = WindowConfig::new(pos, size);
-                cfg_for_close.lock().unwrap().window = Some(win);
+                let win = WindowConfig::new(pos, size, log_view_height.or(previous_log_view_height));
+                cfg_lock.window = Some(win);
             } else {
                 log::warn!("Skipping write of invalid window geometry ({:?}, {:?})", pos, size);
+                if let Some(height) = log_view_height {
+                    cfg_lock.window.get_or_insert_with(WindowConfig::default).log_view_height = Some(height);
+                }
+            }
+            if !settings::save_settings(&cfg_lock) {
+                log::error!("Failed to save window geometry and log view height.");
             }
 
             let clear_up_env = || {
@@ -685,6 +700,8 @@ fn on_wxdragon_init(
 
         // Clean up the tray icon menu to release rust closures attached to menu items
         tray_icon_menu.destroy_menu();
+
+        let _ = ui_timer_holder.take();
     });
 
     // --- Main Panel Layout ---
@@ -706,6 +723,7 @@ fn on_wxdragon_init(
         .and_then(|ls| ls.log_color_output)
         .unwrap_or_default();
     let logview_panel = logview::LogViewPanel::new(&main_panel, log_color_output);
+    logview_panel_for_close.set(Some(logview_panel.panel));
     // Register the TextCtrl in UI-thread-local storage for callbacks
     logview::LOG_TEXT_CTRL.with(|cell| {
         *cell.borrow_mut() = Some(logview_panel.text_ctrl);
@@ -741,11 +759,11 @@ fn on_wxdragon_init(
             .dockable(true)
             .movable(true)
             .min_size(400, 160)
-            .best_size(800, 200)
+            .best_size(800, log_view_height)
+            .dock_size(log_view_height)
             .close_button(false)
             .maximize_button(true),
     );
-    mgr.update();
 
     let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
     main_sizer.add(&main_panel, 1, SizerFlag::Expand | SizerFlag::All, 0);
@@ -811,6 +829,8 @@ fn on_wxdragon_init(
     }
 
     frame.show(true);
+    frame.layout();
+    mgr.update();
 }
 
 pub fn restart_as_admin() -> std::io::Result<std::process::ExitStatus> {

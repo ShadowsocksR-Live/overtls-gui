@@ -6,7 +6,7 @@ use wxdragon::prelude::*;
 /// - If `node_opt` is provided, controls are initialized from it (edit mode).
 /// - Returns Some(ServerNode) when OK, or None when cancelled.
 pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Option<ServerNode> {
-    let (w, h) = (600, 400);
+    let (w, h) = (600, 450);
     let (x, y) = center_rect(parent, w, h);
 
     let title = if let Some(n) = node_opt {
@@ -242,11 +242,11 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
         } else if let Some(any_node) = node.downcast_ref::<AnyTlsNode>() {
             let config = &any_node.config;
             client_id_input.set_value(config.client_id.map(|id| id.to_string()).unwrap_or_default().as_str());
-            server_host_input.set_value(&config.server.host());
-            server_port_input.set_value(config.server.port() as i32);
-            anytls_password_input.set_value(&config.password);
+            server_host_input.set_value(&config.server.as_ref().map(|server| server.host()).unwrap_or_default());
+            server_port_input.set_value(config.server.as_ref().map(|server| server.port()).unwrap_or(443) as i32);
+            anytls_password_input.set_value(config.password.as_deref().unwrap_or(""));
             anytls_sni_input.set_value(config.sni.as_deref().unwrap_or(""));
-            anytls_insecure_chkbox.set_value(config.insecure);
+            anytls_insecure_chkbox.set_value(config.insecure.unwrap_or(false));
         }
     }
 
@@ -289,15 +289,15 @@ pub fn details_dlg(parent: &dyn WxWidget, node_opt: Option<&ServerNode>) -> Opti
                     .and_then(|node| node.downcast_ref::<AnyTlsNode>())
                     .map(|node| node.config.clone())
                     .unwrap_or_default();
-                config.server = (server_host, server_port).into();
+                config.server = Some((server_host, server_port).into());
                 config.sni = {
                     let value = anytls_sni_input.get_value().trim().to_string();
                     if value.is_empty() { None } else { Some(value) }
                 };
-                config.password = anytls_password_input.get_value();
+                config.password = Some(anytls_password_input.get_value());
                 config.client_id = client_id;
-                config.insecure = anytls_insecure_chkbox.get_value();
-                config.display_name = remarks;
+                config.insecure = anytls_insecure_chkbox.get_value().then_some(true);
+                config.fragment = remarks;
                 Some(any_tls_node(config))
             }
             NodeType::OverTls => {

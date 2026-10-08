@@ -23,7 +23,7 @@ pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeM
     fn create_text_column(title: &str, model_col: NodeFields, width: i32, align: DataViewAlign) -> DataViewColumn {
         DataViewColumn::new(
             title,
-            &DataViewTextRenderer::new(VariantType::String, DataViewCellMode::Inert, align),
+            DataViewTextRenderer::new(VariantType::String, DataViewCellMode::Inert, align),
             model_col.bits() as usize,
             width,
             align,
@@ -45,12 +45,12 @@ pub fn create_data_view_panel(parent: &dyn WxWidget, model: &CustomDataViewTreeM
     let port_col = create_text_column(name_map[&NodeFields::ServerPort], NodeFields::ServerPort, 90, align2);
     let domain_col = create_text_column(name_map[&NodeFields::ServerDomain], NodeFields::ServerDomain, 160, align);
 
-    dataview.append_column(&remarks_col);
-    dataview.append_column(&type_col);
-    dataview.append_column(&host_col);
-    dataview.append_column(&port_col);
-    dataview.append_column(&domain_col);
-    dataview.append_column(&path_col);
+    dataview.append_column(remarks_col);
+    dataview.append_column(type_col);
+    dataview.append_column(host_col);
+    dataview.append_column(port_col);
+    dataview.append_column(domain_col);
+    dataview.append_column(path_col);
     dataview.associate_model(model);
 
     let dataview_menu_panel = panel;

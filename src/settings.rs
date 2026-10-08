@@ -3,7 +3,6 @@
 
 use downcast_rs::{Downcast, impl_downcast};
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use strum::IntoEnumIterator;
@@ -79,7 +78,7 @@ pub struct OverTlsNode {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct AnyTlsNode {
     #[serde(flatten)]
-    pub config: anytls::ClientRuntimeConfig,
+    pub config: anytls::ClientArgs,
     #[serde(skip)]
     pub listen: Option<anytls::ProxyParameters>,
 }
@@ -90,15 +89,7 @@ impl ProxyNode for OverTlsNode {
     }
     fn listen_address(&self) -> Option<anytls::ProxyParameters> {
         let client = self.config.client.as_ref()?;
-        let addr = (client.listen_host.parse::<IpAddr>().ok()?, client.listen_port).into();
-        let credentials = match (client.listen_user.as_ref(), client.listen_password.as_ref()) {
-            (Some(user), Some(pass)) if !user.trim().is_empty() && !pass.trim().is_empty() => {
-                Some(anytls::UserKey::new(user.clone(), pass.clone()))
-            }
-            _ => None,
-        };
-
-        Some(anytls::ProxyParameters::new(anytls::ProxyType::Socks5, addr, credentials))
+        Some(client.listen.clone())
     }
     fn title(&self) -> String {
         self.config
@@ -176,24 +167,28 @@ impl ProxyNode for AnyTlsNode {
     }
     fn title(&self) -> String {
         self.config
-            .display_name
+            .fragment
             .clone()
-            .unwrap_or_else(|| self.config.authority().to_string())
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| self.config.server.as_ref().map(ToString::to_string))
+            .unwrap_or_else(|| "Unnamed".to_string())
     }
     fn set_title(&mut self, title: Option<String>) {
-        self.config.display_name = title;
+        self.config.fragment = title;
     }
     fn server_address(&self) -> String {
-        self.config.server.host()
+        self.config.server.as_ref().map(|server| server.host()).unwrap_or_default()
     }
     fn set_server_address(&mut self, address: &str) {
-        self.config.server = (address, self.config.server.port()).into();
+        let port = self.config.server.as_ref().map(|server| server.port()).unwrap_or(443);
+        self.config.server = Some((address, port).into());
     }
     fn server_port(&self) -> u16 {
-        self.config.server.port()
+        self.config.server.as_ref().map(|server| server.port()).unwrap_or_default()
     }
     fn set_server_port(&mut self, port: u16) {
-        self.config.server = (self.config.server.host(), port).into();
+        let host = self.config.server.as_ref().map(|server| server.host()).unwrap_or_default();
+        self.config.server = Some((host, port).into());
     }
     fn server_domain(&self) -> String {
         self.config.sni.clone().unwrap_or_default()
@@ -202,10 +197,10 @@ impl ProxyNode for AnyTlsNode {
         self.config.sni = if domain.is_empty() { None } else { Some(domain.to_string()) };
     }
     fn server_secret(&self) -> String {
-        self.config.password.clone()
+        self.config.password.clone().unwrap_or_default()
     }
     fn set_server_secret(&mut self, secret: String) {
-        self.config.password = secret;
+        self.config.password = Some(secret);
     }
 
     fn client_id(&self) -> Option<uuid::Uuid> {
@@ -216,7 +211,7 @@ impl ProxyNode for AnyTlsNode {
     }
 
     fn generate_node_url(&self) -> std::io::Result<String> {
-        Ok(String::from(&self.config))
+        self.config.format_url().map_err(std::io::Error::other)
     }
     fn to_json_value(&self) -> serde_json::Result<serde_json::Value> {
         serde_json::to_value(self.config.clone())
@@ -249,7 +244,7 @@ pub fn over_tls_node(config: OverTlsConfig) -> ServerNode {
     Box::new(OverTlsNode { config })
 }
 
-pub fn any_tls_node(config: anytls::ClientRuntimeConfig) -> ServerNode {
+pub fn any_tls_node(config: anytls::ClientArgs) -> ServerNode {
     Box::new(AnyTlsNode { config, listen: None })
 }
 
@@ -268,7 +263,7 @@ fn node_from_value(value: serde_json::Value) -> std::io::Result<ServerNode> {
             "overtls" => serde_json::from_value::<OverTlsConfig>(config)
                 .map(over_tls_node)
                 .map_err(std::io::Error::other),
-            "anytls" => serde_json::from_value::<anytls::ClientRuntimeConfig>(config)
+            "anytls" => serde_json::from_value::<anytls::ClientArgs>(config)
                 .map(any_tls_node)
                 .map_err(std::io::Error::other),
             other => Err(std::io::Error::new(
@@ -285,7 +280,7 @@ fn node_from_value(value: serde_json::Value) -> std::io::Result<ServerNode> {
             .map(over_tls_node)
             .map_err(std::io::Error::other);
     }
-    serde_json::from_value::<anytls::ClientRuntimeConfig>(value)
+    serde_json::from_value::<anytls::ClientArgs>(value)
         .map(any_tls_node)
         .map_err(std::io::Error::other)
 }
@@ -300,10 +295,7 @@ pub fn node_from_ssr_url(text: &str) -> std::io::Result<ServerNode> {
 }
 
 pub fn node_from_anytls_url(text: &str) -> std::io::Result<ServerNode> {
-    text.parse::<url::Url>()
-        .map_err(std::io::Error::other)
-        .and_then(|url| anytls::ClientRuntimeConfig::try_from(&url).map_err(std::io::Error::other))
-        .map(any_tls_node)
+    anytls::ClientArgs::from_cli_args(&["anytls-client", "-u", text]).map(any_tls_node)
 }
 
 mod node_vec_serde {
@@ -484,6 +476,8 @@ fn dedupe_subscriptions(urls: &mut Vec<url::Url>) {
 pub struct WindowConfig {
     pub position: (i32, i32),
     pub size: (i32, i32),
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_view_height: Option<usize>,
 }
 
 impl Default for WindowConfig {
@@ -491,15 +485,17 @@ impl Default for WindowConfig {
         Self {
             position: (200, 250),
             size: (700, 400),
+            log_view_height: None,
         }
     }
 }
 
 impl WindowConfig {
-    pub fn new(position: Point, size: Size) -> Self {
+    pub fn new(position: Point, size: Size, log_view_height: Option<usize>) -> Self {
         Self {
             position: (position.x, position.y),
             size: (size.width, size.height),
+            log_view_height,
         }
     }
 

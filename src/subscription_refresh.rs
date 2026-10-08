@@ -7,7 +7,6 @@ use serde_json::Value;
 use std::{
     cell::RefCell,
     collections::HashSet,
-    net::SocketAddr,
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -18,17 +17,15 @@ fn build_subscription_client(running_node: Option<&ServerNode>) -> std::io::Resu
     let mut builder = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10));
     if let Some(node) = running_node {
         log::info!("Running node detected; using its listen address as a SOCKS5 proxy for subscription requests. {node:?}");
-        let listen_address = SocketAddr::try_from(
-            &node
-                .listen_address()
-                .ok_or_else(|| Error::other("Failed to get listen address from running node"))?
-                .addr,
-        )
-        .map_err(|e| Error::other(format!("Failed to parse listen address: {e}")))?;
-        let host = listen_address.ip().to_string();
-        let host = core::normalize_connect_host(&host);
-        let proxy_addr = format!("socks5h://{}:{}", host, listen_address.port());
-        if let Ok(proxy) = reqwest::Proxy::all(&proxy_addr) {
+        let listen_parameters = node
+            .listen_address()
+            .ok_or_else(|| Error::other("Failed to get listen address from running node"))?;
+        let mut proxy_url = url::Url::parse(&listen_parameters.to_string())
+            .map_err(|error| Error::other(format!("Failed to parse listen address: {error}")))?;
+        proxy_url
+            .set_scheme("socks5h")
+            .map_err(|_| Error::other("Failed to configure SOCKS5 remote DNS"))?;
+        if let Ok(proxy) = reqwest::Proxy::all(proxy_url.as_str()) {
             builder = builder.proxy(proxy);
         }
     }
@@ -149,27 +146,29 @@ pub fn is_refresh_in_progress() -> bool {
 }
 
 pub fn refresh_subscriptions(cfg: &AppSettingsRef, sender: std::sync::mpsc::Sender<RefreshResult>, show_dialog: bool) {
-    if REFRESH_IN_PROGRESS
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        log::warn!("Subscription refresh already in progress; ignoring request.");
-        return;
-    }
-    let subscriptions = cfg.lock().unwrap().get_subscriptions();
-    if subscriptions.is_empty() {
-        log::info!("No subscriptions to refresh.");
-        REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
-        return;
-    }
-    let running_node = core::get_global_running_node();
-    let Ok(client) = build_subscription_client(running_node.as_ref()) else {
-        log::error!("Failed to build subscription HTTP client; aborting refresh.");
-        REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
-        return;
-    };
-
+    let cfg = cfg.clone();
     std::thread::spawn(move || {
+        if REFRESH_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            log::warn!("Subscription refresh already in progress; ignoring request.");
+            return;
+        }
+
+        let subscriptions = cfg.lock().unwrap().get_subscriptions();
+        if subscriptions.is_empty() {
+            log::info!("No subscriptions to refresh.");
+            REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
+            return;
+        }
+        let running_node = core::get_global_running_node();
+        let Ok(client) = build_subscription_client(running_node.as_ref()) else {
+            log::error!("Failed to build subscription HTTP client; aborting refresh.");
+            REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
+            return;
+        };
+
         let mut fetched_nodes = Vec::new();
 
         for subscription_url in subscriptions {
@@ -217,17 +216,19 @@ pub fn refresh_subscriptions(cfg: &AppSettingsRef, sender: std::sync::mpsc::Send
 
 pub fn apply_refresh_result(parent: &Frame, cfg: &AppSettingsRef, model: &CustomDataViewTreeModel, result: RefreshResult) {
     let added = append_nodes_to_model(model, cfg, result.nodes);
+    let msg = if added > 0 {
+        format!("Successfully added {added} new node(s) from subscriptions.")
+    } else {
+        "No new nodes were added from subscriptions.".into()
+    };
     if result.show_dialog {
-        let msg = if added > 0 {
-            format!("Successfully added {added} new node(s) from subscriptions.")
-        } else {
-            "No new nodes were added from subscriptions.".into()
-        };
         let dlg = MessageDialog::builder(parent, &msg, "Refresh Complete")
             .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
             .build();
         let _ = dlg.show_modal();
         dlg.destroy();
+    } else {
+        log::info!("{msg}");
     }
     REFRESH_IN_PROGRESS.store(false, Ordering::SeqCst);
 }
