@@ -3,17 +3,18 @@
 [中文版 README](README-CN.md)
 
 OverTLS GUI is a Rust desktop application built with `wxDragon` to provide a graphical
-management interface for [OverTLS](https://github.com/ShadowsocksR-Live/OverTLS) proxy nodes.
+management interface for [OverTLS](https://github.com/ShadowsocksR-Live/OverTLS)
+and [AnyTls](https://github.com/ssrlive/anytls-rs) proxy nodes.
 It enables subscription-based node management, QR code import/export, logging, and system tray integration
 on Linux, Windows, and macOS.
 
 ## Highlights
 
-- **Node Management**: add, edit, delete, and inspect OverTLS server nodes.
+- **Node Management**: add, edit, delete, and inspect OverTLS and AnyTLS server nodes.
 - **Subscription Support**: manage subscription URLs, refresh subscription feeds, and merge nodes without duplicates.
 - **Automatic Refresh**: toggleable `Refresh automatically` menu item with configurable refresh interval.
 - **QR Code Support**: scan QR codes from screen capture and display node QR codes.
-- **Settings Dialog**: configure OverTLS, Tun2proxy, logging, and subscription refresh interval.
+- **Settings Dialog**: configure OverTLS, AnyTLS, Tun2proxy, logging, and subscription refresh interval.
 - **System Tray**: minimize to tray, restore the window, and access settings from the tray menu.
 - **Privilege Handling**: detect admin/root status and restart elevated when required on Linux.
 - **Logging**: integrated log capture with configurable log settings.
@@ -68,7 +69,8 @@ cargo bundle --release --format deb --target x86_64-unknown-linux-gnu
 
 ## Usage
 
-- Open `Settings` from the menu or tray to configure OverTLS, Tun2proxy, logging, and subscription refresh.
+- Add and manage both OverTLS and AnyTLS server nodes.
+- Open `Settings` from the menu or tray to configure OverTLS, AnyTLS, Tun2proxy, logging, and subscription refresh.
 - Use the `Subscriptions` menu to add, edit, delete, or manually refresh subscription URLs.
 - Enable `Refresh automatically` in the `Subscriptions` menu to run periodic background refreshes.
 - Configure the refresh interval in minutes via the settings dialog.
