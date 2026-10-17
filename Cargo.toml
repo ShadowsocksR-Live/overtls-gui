@@ -1,9 +1,10 @@
 [package]
 name = "overtls-gui"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 authors = ["@ssrlive"]
 description = "A GUI wrapper for overtls proxy suits powered by wxDragon"
+repository = "https://github.com/shadowsocksr-live/overtls-gui"
 license = "MIT"
 
 [package.metadata.bundle]
@@ -22,7 +23,7 @@ various libraries, overtls-gui aims to enhance your proxy management workflow.
 """
 
 [dependencies]
-anytls = { version = "0.4.5", default-features = false, features = [
+anytls = { version = "0.5.1", default-features = false, features = [
     "client",
     "ffi",
     "relay",
@@ -34,30 +35,30 @@ downcast-rs = "2.0.2"
 env_logger = "0.11.11"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.34"
-overtls = { version = "0.3.15" }
+overtls = { version = "0.3.17" }
 qrcode = "0.14.1"
 reqwest = { version = "0.13.5", default-features = false, features = [
     "rustls",
     "blocking",
 ] }
-rustls = { version = "0.23.45", default-features = false, features = [
+rustls = { version = "0.23.46", default-features = false, features = [
     "aws-lc-rs",
 ] }
 run-as = { version = "1.2.5", default-features = false }
 screen-shot = { version = "0.0.8" }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = "1.0.154"
 strum = { version = "0.28.0", features = ["derive"] }
 strum_macros = "0.28.0"
 systemproxy = { version = "0.3.8", default-features = false }
-tokio = { version = "1.53.2", features = ["full"] }
-tun2proxy = { version = "0.8.4", default-features = false }
+tokio = { version = "1.53.3", features = ["full"] }
+tun2proxy = { version = "0.8.5", default-features = false }
 url = { version = "2.5.8", default-features = false, features = [
     "std",
     "serde",
 ] }
-uuid = { version = "1.27.0", features = ["v4"] }
-wxdragon = { version = "0.9.22", git = "https://github.com/AllenDang/wxDragon.git", rev = "403dcff", default-features = false, features = [
+uuid = { version = "1.28.0", features = ["v4"] }
+wxdragon = { version = "0.9.23", git = "https://github.com/AllenDang/wxDragon.git", rev = "bc530f6", default-features = false, features = [
     "aui",
     "stc",
 ] }
